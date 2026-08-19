@@ -63,7 +63,7 @@ export async function crearControlPlagas(
   });
 
   const mensaje = mensajeAviso(actividad);
-  const titulo = '⚠️ AVISO DE CONTROL DE PLAGAS';
+  const titulo = 'AVISO DE CONTROL DE PLAGAS';
   let avisosProgramados = 0;
 
   for (const diasAntes of configuracion.diasAvisoPlagas) {
@@ -154,7 +154,7 @@ export async function actualizarControlPlagas(
   if (seReprogramo) {
     await crearNotificaciones(actividad.puestos, {
       tipo: 'control_plagas',
-      titulo: '⚠️ CONTROL DE PLAGAS REPROGRAMADO',
+      titulo: 'CONTROL DE PLAGAS REPROGRAMADO',
       mensaje: mensajeAviso(actividad),
       referencia: { coleccion: 'controlPlagas', documentoId: actividad._id },
     });

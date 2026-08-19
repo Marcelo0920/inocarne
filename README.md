@@ -107,6 +107,7 @@ Todo cuelga de `/api`. Salvo el ingreso, todo exige `Authorization: Bearer <toke
 | `GET` | `/limpiezas/plantilla` · `/limpiezas/dia` | Puntos del checklist y estado del día |
 | `POST·GET·PATCH` | `/equipos` | Inventario de equipos |
 | `POST` | `/equipos/:id/mantenimientos` | Mantenimiento realizado |
+| `GET` | `/historial` | Historial unificado de todos los tipos de registro |
 | `GET` | `/mantenimientos` | Base general de mantenimientos |
 | `POST` | `/archivos` | Sube una evidencia a Cloudinary y devuelve su referencia |
 
@@ -118,6 +119,7 @@ Todo cuelga de `/api`. Salvo el ingreso, todo exige `Authorization: Bearer <toke
 | `POST·GET` | `/inspecciones` | Inspección del mercado o de un puesto |
 | `GET` | `/inspecciones/plantillas` | Puntos de cada checklist |
 | `GET·PATCH` | `/no-conformidades` | Seguimiento de acciones correctivas |
+| `POST` | `/no-conformidades/:id/evidencia-cierre` | El responsable adjunta la prueba de la ejecución |
 | `POST` | `/no-conformidades/:id/cerrar` | Verificación y cierre |
 | `POST·GET·PATCH` | `/capacitaciones` | Cronograma de capacitaciones |
 | `POST` | `/capacitaciones/:id/asistencia` | Lista de asistentes y evidencia |
@@ -166,14 +168,14 @@ reducirlas en el navegador antes de subirlas, porque el plan gratuito tiene cuot
 npm test
 ```
 
-**151 pruebas.** Las de dominio no tocan la base de datos; las de integración
+**176 pruebas.** Las de dominio no tocan la base de datos; las de integración
 levantan un MongoDB en memoria (`mongodb-memory-server`) y llaman a las rutas
 HTTP reales con Supertest. No hace falta ninguna credencial ni conexión a Atlas.
 
 ```
 tests/unit/          time · ranges · compliance
-tests/integration/   auth · recepciones · controles · limpiezas ·
-                     inspecciones · equipos · dashboard · gestion
+tests/integration/   auth · recepciones · controles · limpiezas · inspecciones ·
+                     equipos · dashboard · historial · gestion
 ```
 
 ---
@@ -190,3 +192,27 @@ Pensado para Render (backend) y MongoDB Atlas:
 En el plan gratuito el servidor se suspende tras un período de inactividad y la
 primera petición puede tardar cerca de un minuto. Conviene limitar el ping
 programado al horario del mercado, porque el plan tiene un tope de horas al mes.
+
+---
+
+## Detalles que conviene conocer
+
+**El código del equipo lo asigna el sistema.** El vendedor no lo inventa: si
+`POST /api/equipos` llega sin `codigo`, el servidor genera el primer correlativo
+libre del puesto (`EQ-P3-01`, `EQ-P3-02`…). Se puede enviar uno propio y se
+respeta; un equipo dado de baja conserva su código y no se reutiliza.
+
+**El historial es un endpoint aparte, no la suma de los otros.**
+`GET /api/historial` consulta cada colección, normaliza cada registro a la misma
+forma (`icono`, `titulo`, `hora`, `usuario`, `semaforo`, `estadoTexto`) y los
+combina en una sola lista ordenada por hora de registro. El vendedor recibe solo
+su puesto y sus cuatro tipos; la supervisión recibe todos los puestos e incluye
+inspecciones y mantenimientos. Sin fechas se devuelven los últimos 7 días y la
+ventana máxima consultable es de 92 días, para no traer la base entera de una vez.
+
+**Quién adjunta la evidencia del cierre.** El responsable del puesto sube la
+prueba de que ejecutó la acción con
+`POST /api/no-conformidades/:id/evidencia-cierre`; eso no cierra nada, solo pasa
+la acción a *en proceso*, acumula la evidencia y avisa a la supervisión. Cerrar
+sigue siendo exclusivo del supervisor, que verifica primero. La respuesta incluye
+`listaParaVerificar` para que la interfaz sepa cuándo ofrecer el botón de cierre.

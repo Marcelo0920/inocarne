@@ -100,16 +100,13 @@ describe('GET /api/dashboard', () => {
         firma: EVIDENCIA,
         fotos: [],
       });
-    await request(app)
-      .post('/api/controles')
-      .set('Authorization', sesion.auth)
-      .send({
-        tipo: 'exhibicion',
-        franjaProgramada: franja,
-        temperatura: 4,
-        ph: 5.6,
-        tipoCarne: 'res',
-      });
+    await request(app).post('/api/controles').set('Authorization', sesion.auth).send({
+      tipo: 'exhibicion',
+      franjaProgramada: franja,
+      temperatura: 4,
+      ph: 5.6,
+      tipoCarne: 'res',
+    });
     await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)

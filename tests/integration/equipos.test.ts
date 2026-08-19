@@ -63,7 +63,7 @@ describe('POST /api/equipos', () => {
     expect(repetido.status).toBe(409);
   });
 
-  it('exige el código y el nombre', async () => {
+  it('exige el nombre; el código es opcional porque lo asigna el sistema', async () => {
     const { sesion } = await crearSesionPuesto(1);
     const respuesta = await request(app)
       .post('/api/equipos')
@@ -71,8 +71,8 @@ describe('POST /api/equipos', () => {
       .send({ marca: 'Electrolux' });
 
     expect(respuesta.status).toBe(400);
-    expect(respuesta.body.error.detalle).toHaveProperty('codigo');
     expect(respuesta.body.error.detalle).toHaveProperty('nombre');
+    expect(respuesta.body.error.detalle).not.toHaveProperty('codigo');
   });
 });
 
@@ -243,5 +243,68 @@ describe('base general de mantenimientos', () => {
 
     expect(todos.body.data).toHaveLength(2);
     expect(soloUno.body.data).toHaveLength(1);
+  });
+});
+
+describe('código automático del equipo', () => {
+  it('lo asigna el sistema con el número del puesto y un correlativo', async () => {
+    const { sesion } = await crearSesionPuesto(3);
+
+    const primero = await request(app)
+      .post('/api/equipos')
+      .set('Authorization', sesion.auth)
+      .send({ nombre: 'Vitrina refrigerada' });
+    const segundo = await request(app)
+      .post('/api/equipos')
+      .set('Authorization', sesion.auth)
+      .send({ nombre: 'Balanza' });
+
+    expect(primero.status).toBe(201);
+    expect(primero.body.codigo).toBe('EQ-P3-01');
+    expect(segundo.body.codigo).toBe('EQ-P3-02');
+  });
+
+  it('numera por puesto, no de corrido entre puestos', async () => {
+    const puesto1 = await crearSesionPuesto(1);
+    const puesto7 = await crearSesionPuesto(7);
+
+    const a = await request(app)
+      .post('/api/equipos')
+      .set('Authorization', puesto1.sesion.auth)
+      .send({ nombre: 'Vitrina' });
+    const b = await request(app)
+      .post('/api/equipos')
+      .set('Authorization', puesto7.sesion.auth)
+      .send({ nombre: 'Vitrina' });
+
+    expect(a.body.codigo).toBe('EQ-P1-01');
+    expect(b.body.codigo).toBe('EQ-P7-01');
+  });
+
+  it('respeta un código escrito a mano cuando se envía', async () => {
+    const { sesion } = await crearSesionPuesto(1);
+
+    const respuesta = await request(app)
+      .post('/api/equipos')
+      .set('Authorization', sesion.auth)
+      .send({ nombre: 'Termómetro', codigo: 'tm-001' });
+
+    expect(respuesta.body.codigo).toBe('TM-001');
+  });
+
+  it('no reutiliza un código ya ocupado por otro equipo del puesto', async () => {
+    const { sesion } = await crearSesionPuesto(2);
+
+    await request(app)
+      .post('/api/equipos')
+      .set('Authorization', sesion.auth)
+      .send({ nombre: 'Vitrina', codigo: 'EQ-P2-01' });
+    const automatico = await request(app)
+      .post('/api/equipos')
+      .set('Authorization', sesion.auth)
+      .send({ nombre: 'Balanza' });
+
+    expect(automatico.status).toBe(201);
+    expect(automatico.body.codigo).toBe('EQ-P2-02');
   });
 });

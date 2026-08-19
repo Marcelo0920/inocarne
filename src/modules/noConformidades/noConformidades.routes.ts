@@ -6,12 +6,14 @@ import {
   actualizarNoConformidadSchema,
   cerrarNoConformidadSchema,
   crearNoConformidadSchema,
+  evidenciaCierreSchema,
   idParamSchema,
   listarNoConformidadesSchema,
 } from './noConformidades.schemas.js';
 import {
   actualizarNoConformidad,
   cerrarNoConformidad,
+  adjuntarEvidenciaCierre,
   crearNoConformidad,
   listarNoConformidades,
   obtenerNoConformidad,
@@ -56,6 +58,25 @@ noConformidadesRouter.patch(
   validar({ params: idParamSchema, body: actualizarNoConformidadSchema }),
   asyncHandler(async (req, res) => {
     res.json(await actualizarNoConformidad(req.params.id!, req.body, req.usuario!.id));
+  }),
+);
+
+/**
+ * El responsable adjunta la evidencia de haber ejecutado la acción.
+ * Lo hace el puesto desde su teléfono; no cierra nada, solo deja la acción
+ * lista para que el supervisor la verifique.
+ */
+noConformidadesRouter.post(
+  '/:id/evidencia-cierre',
+  validar({ params: idParamSchema, body: evidenciaCierreSchema }),
+  asyncHandler(async (req, res) => {
+    const propio = req.usuario!.rol === 'puesto' ? resolverPuesto(req) : null;
+    res.json(
+      await adjuntarEvidenciaCierre(req.params.id!, req.body, {
+        usuarioId: req.usuario!.id,
+        puestoObligatorio: propio,
+      }),
+    );
   }),
 );
 

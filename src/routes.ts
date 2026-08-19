@@ -7,6 +7,7 @@ import { configuracionRouter } from './modules/configuracion/configuracion.route
 import { recepcionesRouter } from './modules/recepciones/recepciones.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { equiposRouter, mantenimientosRouter } from './modules/equipos/equipos.routes.js';
+import { historialRouter } from './modules/historial/historial.routes.js';
 import { inspeccionesRouter } from './modules/inspecciones/inspecciones.routes.js';
 import { limpiezasRouter } from './modules/limpiezas/limpiezas.routes.js';
 import { noConformidadesRouter } from './modules/noConformidades/noConformidades.routes.js';
@@ -35,5 +36,6 @@ apiRouter.use('/notificaciones', notificacionesRouter);
 apiRouter.use('/capacitaciones', capacitacionesRouter);
 apiRouter.use('/control-plagas', plagasRouter);
 apiRouter.use('/dashboard', dashboardRouter);
+apiRouter.use('/historial', historialRouter);
 apiRouter.use('/reportes', reportesRouter);
 apiRouter.use('/tareas', tareasRouter);

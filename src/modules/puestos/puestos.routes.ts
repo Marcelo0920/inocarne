@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { autenticar, exigirAdmin, resolverPuesto } from '../../middleware/auth.js';
+import { autenticar, exigirSupervision, resolverPuesto } from '../../middleware/auth.js';
 import { validar } from '../../middleware/validate.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import {
@@ -40,7 +40,7 @@ puestosRouter.get(
 
 puestosRouter.post(
   '/',
-  exigirAdmin,
+  exigirSupervision,
   validar({ body: crearPuestoSchema }),
   asyncHandler(async (req, res) => {
     res.status(201).json(await crearPuesto(req.body));
@@ -49,7 +49,7 @@ puestosRouter.post(
 
 puestosRouter.patch(
   '/:id',
-  exigirAdmin,
+  exigirSupervision,
   validar({ params: idParamSchema, body: actualizarPuestoSchema }),
   asyncHandler(async (req, res) => {
     res.json(await actualizarPuesto(req.params.id!, req.body));

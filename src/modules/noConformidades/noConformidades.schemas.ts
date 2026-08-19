@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ESTADOS_ACCION } from '../../domain/constants.js';
+import { fechaDelMercado } from '../../utils/fechaDelMercado.js';
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Identificador inválido');
 
@@ -16,14 +17,14 @@ export const crearNoConformidadSchema = z.object({
   evidencia: z.array(evidencia).max(8).default([]),
   accionCorrectiva: z.string().trim().max(1000).optional(),
   responsable: z.string().trim().max(160).optional(),
-  fechaLimite: z.coerce.date().optional(),
+  fechaLimite: fechaDelMercado.optional(),
 });
 
 export const actualizarNoConformidadSchema = z
   .object({
     accionCorrectiva: z.string().trim().max(1000).optional(),
     responsable: z.string().trim().max(160).optional(),
-    fechaLimite: z.coerce.date().optional(),
+    fechaLimite: fechaDelMercado.optional(),
     // El cierre tiene su propia ruta, con verificación del supervisor.
     estado: z.enum(['pendiente', 'en_proceso']).optional(),
     evidenciaCierre: z.array(evidencia).max(8).optional(),
@@ -33,6 +34,12 @@ export const actualizarNoConformidadSchema = z
 export const cerrarNoConformidadSchema = z.object({
   comentarioCierre: z.string().trim().max(1000).optional(),
   evidenciaCierre: z.array(evidencia).max(8).optional(),
+});
+
+/** El responsable adjunta la prueba de que ejecutó la acción. */
+export const evidenciaCierreSchema = z.object({
+  evidenciaCierre: z.array(evidencia).min(1, 'Adjunte al menos una evidencia').max(8),
+  comentario: z.string().trim().max(1000).optional(),
 });
 
 export const listarNoConformidadesSchema = z.object({
@@ -50,5 +57,6 @@ export const idParamSchema = z.object({ id: objectId });
 
 export type CrearNoConformidadInput = z.infer<typeof crearNoConformidadSchema>;
 export type ActualizarNoConformidadInput = z.infer<typeof actualizarNoConformidadSchema>;
+export type EvidenciaCierreInput = z.infer<typeof evidenciaCierreSchema>;
 export type CerrarNoConformidadInput = z.infer<typeof cerrarNoConformidadSchema>;
 export type ListarNoConformidadesInput = z.infer<typeof listarNoConformidadesSchema>;

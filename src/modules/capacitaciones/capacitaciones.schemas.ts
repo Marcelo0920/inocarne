@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ESTADOS_CAPACITACION } from '../../domain/constants.js';
+import { fechaDelMercado } from '../../utils/fechaDelMercado.js';
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Identificador inválido');
 const hora = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use el formato HH:mm');
@@ -17,7 +18,7 @@ const participante = z.object({
 
 export const crearCapacitacionSchema = z.object({
   tema: z.string().trim().min(1, 'Indique el tema').max(200),
-  fechaProgramada: z.coerce.date(),
+  fechaProgramada: fechaDelMercado,
   hora,
   lugar: z.string().trim().max(160).optional(),
   capacitador: z.string().trim().max(160).optional(),
@@ -30,7 +31,7 @@ export const crearCapacitacionSchema = z.object({
 export const actualizarCapacitacionSchema = z
   .object({
     tema: z.string().trim().min(1).max(200).optional(),
-    fechaProgramada: z.coerce.date().optional(),
+    fechaProgramada: fechaDelMercado.optional(),
     hora: hora.optional(),
     lugar: z.string().trim().max(160).optional(),
     capacitador: z.string().trim().max(160).optional(),
@@ -43,7 +44,7 @@ export const actualizarCapacitacionSchema = z
 
 export const registrarAsistenciaSchema = z.object({
   participantes: z.array(participante).min(1, 'Registre al menos un participante'),
-  fechaRealizada: z.coerce.date().optional(),
+  fechaRealizada: fechaDelMercado.optional(),
   evidencia: z.array(evidencia).max(8).optional(),
   observaciones: z.string().trim().max(1000).optional(),
 });

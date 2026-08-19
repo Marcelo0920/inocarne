@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { TIPOS_MANTENIMIENTO } from '../../domain/constants.js';
+import { fechaDelMercado } from '../../utils/fechaDelMercado.js';
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Identificador inválido');
-const fecha = z.coerce.date();
+const fecha = fechaDelMercado;
 
 const evidencia = z.object({
   url: z.string().url('La referencia del archivo no es válida'),
@@ -11,7 +12,8 @@ const evidencia = z.object({
 
 export const crearEquipoSchema = z.object({
   puestoId: objectId.optional(),
-  codigo: z.string().trim().min(1, 'El código del equipo es obligatorio').max(40),
+  // Opcional: si no viene, el sistema asigna EQ-P{puesto}-{secuencia}.
+  codigo: z.string().trim().min(1).max(40).optional(),
   nombre: z.string().trim().min(1, 'Indique el nombre o tipo de equipo').max(120),
   marca: z.string().trim().max(80).optional(),
   modelo: z.string().trim().max(80).optional(),

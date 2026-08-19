@@ -16,6 +16,21 @@ function horaLocalDesplazada(minutos: number): string {
   return zonedTimeKey(new Date(Date.now() + minutos * 60_000), TZ);
 }
 
+/**
+ * Franja dentro de la tolerancia, sin cruzar la medianoche local.
+ *
+ * El cumplimiento se calcula dentro de un mismo día del mercado. Restar
+ * minutos de madrugada daría una hora del día anterior y el control aparecería
+ * con retraso, así que cerca de la medianoche el desplazamiento va hacia
+ * adelante: dentro de la ventana igual, pero sin cambiar de día.
+ */
+function franjaDentroDeTolerancia(minutos: number): string {
+  const [horas = '0', min = '0'] = zonedTimeKey(new Date(), TZ).split(':');
+  const minutosDelDia = Number(horas) * 60 + Number(min);
+  const haciaAtras = minutosDelDia >= minutos && minutosDelDia + minutos < 24 * 60;
+  return horaLocalDesplazada(haciaAtras ? -minutos : minutos);
+}
+
 const controlExhibicion = {
   tipo: 'exhibicion' as const,
   temperatura: 4,
@@ -67,7 +82,7 @@ describe('POST /api/controles — cumplimiento horario (regla R4)', () => {
   });
 
   it('respeta una tolerancia configurada más amplia', async () => {
-    const franja = horaLocalDesplazada(-40);
+    const franja = franjaDentroDeTolerancia(40);
     await actualizarConfiguracion({ horariosExhibicion: [franja], toleranciaMinutos: 60 });
     const { sesion } = await crearSesionPuesto(1);
 

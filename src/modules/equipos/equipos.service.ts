@@ -6,6 +6,7 @@ import { estadoMantenimiento } from '../../domain/maintenance.js';
 import { endOfZonedDay, startOfZonedDay } from '../../domain/time.js';
 import { EquipoModel, type Equipo } from '../../models/Equipo.js';
 import { MantenimientoModel, type Mantenimiento } from '../../models/Mantenimiento.js';
+import { PuestoModel } from '../../models/Puesto.js';
 import { auditar } from '../../services/auditoria.service.js';
 import { obtenerConfiguracion } from '../../services/configuracion.service.js';
 import { ApiError } from '../../utils/ApiError.js';
@@ -39,17 +40,43 @@ async function conEstado(equipos: Equipo[]): Promise<EquipoConEstado[]> {
   }));
 }
 
+/**
+ * Código correlativo del equipo dentro de su puesto: `EQ-P3-01`, `EQ-P3-02`…
+ *
+ * El vendedor no inventa códigos: los asigna el sistema. Se busca el primer
+ * número libre porque un equipo dado de baja deja su código ocupado y el
+ * índice único no admite repetirlo.
+ */
+async function generarCodigo(puestoId: string): Promise<string> {
+  const puesto = await PuestoModel.findById(puestoId).lean();
+  if (!puesto) throw ApiError.badRequest('El puesto indicado no existe.');
+
+  const existentes = await EquipoModel.find({ puestoId: new Types.ObjectId(puestoId) })
+    .select('codigo')
+    .lean();
+  const ocupados = new Set(existentes.map((equipo) => equipo.codigo));
+
+  for (let secuencia = 1; secuencia <= 999; secuencia += 1) {
+    const codigo = `EQ-P${puesto.numero}-${String(secuencia).padStart(2, '0')}`;
+    if (!ocupados.has(codigo)) return codigo;
+  }
+  throw ApiError.conflict('No hay códigos disponibles para este puesto.');
+}
+
 export async function crearEquipo(
   datos: CrearEquipoInput,
   autor: { usuarioId: string; puestoId: string },
 ): Promise<EquipoConEstado> {
-  const duplicado = await EquipoModel.findOne({ codigo: datos.codigo.toUpperCase() }).lean();
+  const codigo = datos.codigo ? datos.codigo.toUpperCase() : await generarCodigo(autor.puestoId);
+
+  const duplicado = await EquipoModel.findOne({ codigo }).lean();
   if (duplicado) {
-    throw ApiError.conflict(`Ya existe un equipo con el código ${datos.codigo.toUpperCase()}.`);
+    throw ApiError.conflict(`Ya existe un equipo con el código ${codigo}.`);
   }
 
   const equipo = await EquipoModel.create({
     ...datos,
+    codigo,
     puestoId: new Types.ObjectId(autor.puestoId),
   });
 

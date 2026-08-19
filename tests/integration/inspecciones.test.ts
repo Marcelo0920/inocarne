@@ -344,3 +344,132 @@ describe('seguimiento de la acción correctiva', () => {
     expect(detalle.status).toBe(403);
   });
 });
+
+describe('evidencia de ejecución adjuntada por el responsable', () => {
+  async function accionAsignada() {
+    const { puesto, sesion } = await crearSesionPuesto(3);
+    const supervisor = await crearSesion({ rol: 'supervisor', usuario: 'supervisora' });
+    const items = checklistPuesto();
+    items[2] = { nombre: 'Limpieza — piso', cumple: false, comentario: 'Piso sucio' } as never;
+
+    const inspeccion = await request(app)
+      .post('/api/inspecciones')
+      .set('Authorization', supervisor.auth)
+      .send({ tipo: 'puesto', puestoId: String(puesto._id), items, fotos: [] });
+
+    const noConformidad = inspeccion.body.noConformidades[0];
+    await request(app)
+      .patch(`/api/no-conformidades/${noConformidad.id}`)
+      .set('Authorization', supervisor.auth)
+      .send({ accionCorrectiva: 'Limpieza profunda del piso', fechaLimite: '2030-01-10' });
+
+    return { puesto, sesionPuesto: sesion, supervisor, noConformidad };
+  }
+
+  it('el puesto adjunta la evidencia y la acción queda en proceso', async () => {
+    const { sesionPuesto, noConformidad } = await accionAsignada();
+
+    const respuesta = await request(app)
+      .post(`/api/no-conformidades/${noConformidad.id}/evidencia-cierre`)
+      .set('Authorization', sesionPuesto.auth)
+      .send({ evidenciaCierre: [EVIDENCIA], comentario: 'Piso lavado y desinfectado' });
+
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.body.estado).toBe('en_proceso');
+    expect(respuesta.body.evidenciaCierre).toHaveLength(1);
+    expect(respuesta.body.listaParaVerificar).toBe(true);
+    // Adjuntar no cierra: cerrar sigue siendo del supervisor.
+    expect(respuesta.body.verificadaEn).toBeNull();
+  });
+
+  it('avisa a la supervisión de que puede verificar', async () => {
+    const { sesionPuesto, supervisor, noConformidad } = await accionAsignada();
+
+    await request(app)
+      .post(`/api/no-conformidades/${noConformidad.id}/evidencia-cierre`)
+      .set('Authorization', sesionPuesto.auth)
+      .send({ evidenciaCierre: [EVIDENCIA] });
+
+    const avisos = await request(app)
+      .get('/api/notificaciones')
+      .set('Authorization', supervisor.auth);
+
+    expect(
+      avisos.body.data.some((a: { titulo: string }) => /lista para verificar/i.test(a.titulo)),
+    ).toBe(true);
+  });
+
+  it('acumula la evidencia de varios envíos', async () => {
+    const { sesionPuesto, noConformidad } = await accionAsignada();
+    const ruta = `/api/no-conformidades/${noConformidad.id}/evidencia-cierre`;
+
+    await request(app)
+      .post(ruta)
+      .set('Authorization', sesionPuesto.auth)
+      .send({ evidenciaCierre: [EVIDENCIA] });
+    const segunda = await request(app)
+      .post(ruta)
+      .set('Authorization', sesionPuesto.auth)
+      .send({
+        evidenciaCierre: [{ url: 'https://res.cloudinary.com/demo/y.jpg', publicId: 'demo/y' }],
+      });
+
+    expect(segunda.body.evidenciaCierre).toHaveLength(2);
+  });
+
+  it('el supervisor verifica y cierra después de la evidencia', async () => {
+    const { sesionPuesto, supervisor, noConformidad } = await accionAsignada();
+
+    await request(app)
+      .post(`/api/no-conformidades/${noConformidad.id}/evidencia-cierre`)
+      .set('Authorization', sesionPuesto.auth)
+      .send({ evidenciaCierre: [EVIDENCIA] });
+
+    const cierre = await request(app)
+      .post(`/api/no-conformidades/${noConformidad.id}/cerrar`)
+      .set('Authorization', supervisor.auth)
+      .send({ comentarioCierre: 'Verificado en sitio' });
+
+    expect(cierre.body.estado).toBe('realizado');
+    expect(cierre.body.listaParaVerificar).toBe(false);
+  });
+
+  it('un puesto no puede responder la acción de otro', async () => {
+    const { noConformidad } = await accionAsignada();
+    const otro = await crearSesionPuesto(9);
+
+    const respuesta = await request(app)
+      .post(`/api/no-conformidades/${noConformidad.id}/evidencia-cierre`)
+      .set('Authorization', otro.sesion.auth)
+      .send({ evidenciaCierre: [EVIDENCIA] });
+
+    expect(respuesta.status).toBe(403);
+  });
+
+  it('no se puede adjuntar evidencia a una acción ya cerrada', async () => {
+    const { sesionPuesto, supervisor, noConformidad } = await accionAsignada();
+
+    await request(app)
+      .post(`/api/no-conformidades/${noConformidad.id}/cerrar`)
+      .set('Authorization', supervisor.auth)
+      .send({});
+
+    const respuesta = await request(app)
+      .post(`/api/no-conformidades/${noConformidad.id}/evidencia-cierre`)
+      .set('Authorization', sesionPuesto.auth)
+      .send({ evidenciaCierre: [EVIDENCIA] });
+
+    expect(respuesta.status).toBe(409);
+  });
+
+  it('exige al menos una evidencia', async () => {
+    const { sesionPuesto, noConformidad } = await accionAsignada();
+
+    const respuesta = await request(app)
+      .post(`/api/no-conformidades/${noConformidad.id}/evidencia-cierre`)
+      .set('Authorization', sesionPuesto.auth)
+      .send({ evidenciaCierre: [] });
+
+    expect(respuesta.status).toBe(400);
+  });
+});
