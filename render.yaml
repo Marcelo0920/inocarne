@@ -1,0 +1,54 @@
+# Despliegue de la API en Render.
+#
+# El build necesita las devDependencies —TypeScript y los @types— porque
+# compila antes de arrancar. Render pone NODE_ENV=production en el entorno del
+# build, y con eso `npm install` omite las dependencias de desarrollo: sin
+# `--include=dev` no hay compilador y el build falla.
+#
+# Los secretos van con `sync: false`: Render los pide una sola vez al crear el
+# servicio y no quedan escritos en el repositorio.
+
+services:
+  - type: web
+    name: inocarne-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: DISPLAY_TIMEZONE
+        value: America/La_Paz
+
+      # Cadena de conexión de MongoDB Atlas.
+      - key: MONGODB_URI
+        sync: false
+
+      # Clave para firmar los JWT. Generar con:
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 12h
+
+      # Almacenamiento de fotografías y firmas.
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_FOLDER
+        value: inocarne
+
+      # Protege la tarea de alertas programadas. Sin ella responde 503.
+      - key: CRON_SECRET
+        sync: false
+
+      # Orígenes del frontend, separados por coma. Sin el dominio correcto el
+      # navegador bloquea las llamadas de la aplicación desplegada.
+      - key: CORS_ORIGINS
+        sync: false

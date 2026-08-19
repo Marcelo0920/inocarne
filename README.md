@@ -15,17 +15,17 @@ npm run seed              # datos iniciales (opcional)
 npm run dev               # http://localhost:4000
 ```
 
-| Comando | Qué hace |
-|---|---|
-| `npm run dev` | Servidor de desarrollo con recarga automática |
-| `npm test` | Toda la suite de pruebas (no necesita base de datos real) |
-| `npm run test:watch` | Pruebas en modo interactivo |
-| `npm run test:coverage` | Pruebas con informe de cobertura |
-| `npm run typecheck` | Verificación de tipos |
-| `npm run lint` | Análisis estático |
-| `npm run build` && `npm start` | Compilar y ejecutar en producción |
-| `npm run seed` | Crea configuración, puestos y usuarios de ejemplo |
-| `npm run seed -- --reset` | Borra y vuelve a crear (nunca en producción) |
+| Comando                        | Qué hace                                                  |
+| ------------------------------ | --------------------------------------------------------- |
+| `npm run dev`                  | Servidor de desarrollo con recarga automática             |
+| `npm test`                     | Toda la suite de pruebas (no necesita base de datos real) |
+| `npm run test:watch`           | Pruebas en modo interactivo                               |
+| `npm run test:coverage`        | Pruebas con informe de cobertura                          |
+| `npm run typecheck`            | Verificación de tipos                                     |
+| `npm run lint`                 | Análisis estático                                         |
+| `npm run build` && `npm start` | Compilar y ejecutar en producción                         |
+| `npm run seed`                 | Crea configuración, puestos y usuarios de ejemplo         |
+| `npm run seed -- --reset`      | Borra y vuelve a crear (nunca en producción)              |
 
 ### Variables de entorno
 
@@ -65,16 +65,16 @@ La lógica de negocio vive en `domain/` como funciones puras. Por eso las reglas
 
 ## Reglas que aplica el servidor
 
-| Regla | Dónde vive |
-|---|---|
-| **R1** La fecha y la hora las pone el servidor; el cliente no puede fijarlas (`registradoEn` es `immutable`) | modelos + servicios |
-| **R2** Los registros no se editan ni se borran; toda operación queda en `auditoria` | `services/auditoria.service.ts` |
-| **R3** Temperatura ≤ 5 °C · pH 5,4–5,8 rojas · 5,8–6,2 pollo, según el tipo de carne | `domain/ranges.ts` |
-| **R4** A tiempo / con retraso / pendiente / no realizado, con tolerancia configurable (15 min) | `domain/compliance.ts` |
-| **R5** La recepción no tiene horario fijo: nunca se marca con retraso | `modules/recepciones` |
-| **R6** Evidencia fotográfica obligatoria cuando la carne no cumple; firma en pantalla en la recepción | `modules/recepciones` |
-| **R7** Un "no cumple" en una inspección crea la no conformidad con los datos ya cargados | `modules/inspecciones` |
-| **R8** El semáforo y el plazo vencido se calculan al consultar; no se almacenan | `modules/dashboard`, `modules/noConformidades` |
+| Regla                                                                                                        | Dónde vive                                     |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| **R1** La fecha y la hora las pone el servidor; el cliente no puede fijarlas (`registradoEn` es `immutable`) | modelos + servicios                            |
+| **R2** Los registros no se editan ni se borran; toda operación queda en `auditoria`                          | `services/auditoria.service.ts`                |
+| **R3** Temperatura ≤ 5 °C · pH 5,4–5,8 rojas · 5,8–6,2 pollo, según el tipo de carne                         | `domain/ranges.ts`                             |
+| **R4** A tiempo / con retraso / pendiente / no realizado, con tolerancia configurable (15 min)               | `domain/compliance.ts`                         |
+| **R5** La recepción no tiene horario fijo: nunca se marca con retraso                                        | `modules/recepciones`                          |
+| **R6** Evidencia fotográfica obligatoria cuando la carne no cumple; firma en pantalla en la recepción        | `modules/recepciones`                          |
+| **R7** Un "no cumple" en una inspección crea la no conformidad con los datos ya cargados                     | `modules/inspecciones`                         |
+| **R8** El semáforo y el plazo vencido se calculan al consultar; no se almacenan                              | `modules/dashboard`, `modules/noConformidades` |
 
 Un índice único por `(tipo, puestoId, dia, franjaProgramada)` impide registrar dos
 veces el mismo control del mismo día, y otro por `(puestoId, dia, turno)` hace lo
@@ -87,52 +87,56 @@ mismo con los checklists de limpieza.
 Todo cuelga de `/api`. Salvo el ingreso, todo exige `Authorization: Bearer <token>`.
 
 ### Sesión y administración
-| Método | Ruta | Quién |
-|---|---|---|
-| `POST` | `/auth/login` | público |
-| `GET` | `/auth/yo` | autenticado |
-| `POST` | `/auth/cambiar-password` | autenticado |
-| `GET·PATCH` | `/configuracion` | leer: autenticado · modificar: admin |
-| `GET·POST·PATCH` | `/puestos` | leer: autenticado · crear y modificar: admin |
-| `GET·POST·PATCH` | `/usuarios` | admin |
-| `POST` | `/usuarios/:id/restablecer-password` | admin |
+
+| Método           | Ruta                                 | Quién                                        |
+| ---------------- | ------------------------------------ | -------------------------------------------- |
+| `POST`           | `/auth/login`                        | público                                      |
+| `GET`            | `/auth/yo`                           | autenticado                                  |
+| `POST`           | `/auth/cambiar-password`             | autenticado                                  |
+| `GET·PATCH`      | `/configuracion`                     | leer: autenticado · modificar: admin         |
+| `GET·POST·PATCH` | `/puestos`                           | leer: autenticado · crear y modificar: admin |
+| `GET·POST·PATCH` | `/usuarios`                          | admin                                        |
+| `POST`           | `/usuarios/:id/restablecer-password` | admin                                        |
 
 ### Registros del puesto
-| Método | Ruta | Qué hace |
-|---|---|---|
-| `POST·GET` | `/recepciones` | Recepción de carne, con firma y evidencia |
-| `POST` | `/controles` | Control de exhibición o de refrigeración |
-| `GET` | `/controles/dia` | Estado de las franjas del día |
-| `POST·GET` | `/limpiezas` | Checklist de limpieza por turno |
-| `GET` | `/limpiezas/plantilla` · `/limpiezas/dia` | Puntos del checklist y estado del día |
-| `POST·GET·PATCH` | `/equipos` | Inventario de equipos |
-| `POST` | `/equipos/:id/mantenimientos` | Mantenimiento realizado |
-| `GET` | `/historial` | Historial unificado de todos los tipos de registro |
-| `GET` | `/mantenimientos` | Base general de mantenimientos |
-| `POST` | `/archivos` | Sube una evidencia a Cloudinary y devuelve su referencia |
+
+| Método           | Ruta                                      | Qué hace                                                 |
+| ---------------- | ----------------------------------------- | -------------------------------------------------------- |
+| `POST·GET`       | `/recepciones`                            | Recepción de carne, con firma y evidencia                |
+| `POST`           | `/controles`                              | Control de exhibición o de refrigeración                 |
+| `GET`            | `/controles/dia`                          | Estado de las franjas del día                            |
+| `POST·GET`       | `/limpiezas`                              | Checklist de limpieza por turno                          |
+| `GET`            | `/limpiezas/plantilla` · `/limpiezas/dia` | Puntos del checklist y estado del día                    |
+| `POST·GET·PATCH` | `/equipos`                                | Inventario de equipos                                    |
+| `POST`           | `/equipos/:id/mantenimientos`             | Mantenimiento realizado                                  |
+| `GET`            | `/historial`                              | Historial unificado de todos los tipos de registro       |
+| `GET`            | `/mantenimientos`                         | Base general de mantenimientos                           |
+| `POST`           | `/archivos`                               | Sube una evidencia a Cloudinary y devuelve su referencia |
 
 ### Supervisión
-| Método | Ruta | Qué hace |
-|---|---|---|
-| `GET` | `/dashboard` | Panel semáforo de todos los puestos |
-| `GET` | `/dashboard/puesto/:puestoId` | Detalle de un puesto |
-| `POST·GET` | `/inspecciones` | Inspección del mercado o de un puesto |
-| `GET` | `/inspecciones/plantillas` | Puntos de cada checklist |
-| `GET·PATCH` | `/no-conformidades` | Seguimiento de acciones correctivas |
-| `POST` | `/no-conformidades/:id/evidencia-cierre` | El responsable adjunta la prueba de la ejecución |
-| `POST` | `/no-conformidades/:id/cerrar` | Verificación y cierre |
-| `POST·GET·PATCH` | `/capacitaciones` | Cronograma de capacitaciones |
-| `POST` | `/capacitaciones/:id/asistencia` | Lista de asistentes y evidencia |
-| `POST·GET·PATCH` | `/control-plagas` | Cronograma de fumigaciones |
-| `POST` | `/control-plagas/:id/realizada` | Registro de la actividad ejecutada |
-| `GET` | `/notificaciones` · `/notificaciones/sin-leer` | Avisos |
-| `GET` | `/reportes/resumen` · `/reportes/excel` | Reporte y descarga en Excel |
+
+| Método           | Ruta                                           | Qué hace                                         |
+| ---------------- | ---------------------------------------------- | ------------------------------------------------ |
+| `GET`            | `/dashboard`                                   | Panel semáforo de todos los puestos              |
+| `GET`            | `/dashboard/puesto/:puestoId`                  | Detalle de un puesto                             |
+| `POST·GET`       | `/inspecciones`                                | Inspección del mercado o de un puesto            |
+| `GET`            | `/inspecciones/plantillas`                     | Puntos de cada checklist                         |
+| `GET·PATCH`      | `/no-conformidades`                            | Seguimiento de acciones correctivas              |
+| `POST`           | `/no-conformidades/:id/evidencia-cierre`       | El responsable adjunta la prueba de la ejecución |
+| `POST`           | `/no-conformidades/:id/cerrar`                 | Verificación y cierre                            |
+| `POST·GET·PATCH` | `/capacitaciones`                              | Cronograma de capacitaciones                     |
+| `POST`           | `/capacitaciones/:id/asistencia`               | Lista de asistentes y evidencia                  |
+| `POST·GET·PATCH` | `/control-plagas`                              | Cronograma de fumigaciones                       |
+| `POST`           | `/control-plagas/:id/realizada`                | Registro de la actividad ejecutada               |
+| `GET`            | `/notificaciones` · `/notificaciones/sin-leer` | Avisos                                           |
+| `GET`            | `/reportes/resumen` · `/reportes/excel`        | Reporte y descarga en Excel                      |
 
 ### Tarea programada
-| Método | Ruta | Autenticación |
-|---|---|---|
-| `POST` | `/tareas/alertas` | cabecera `x-cron-secret` |
-| `POST` | `/tareas/alertas/manual` | admin |
+
+| Método | Ruta                     | Autenticación            |
+| ------ | ------------------------ | ------------------------ |
+| `POST` | `/tareas/alertas`        | cabecera `x-cron-secret` |
+| `POST` | `/tareas/alertas/manual` | admin                    |
 
 Evalúa controles no realizados, mantenimientos próximos y vencidos, acciones
 correctivas por vencer y entrega los avisos programados de fumigación.
@@ -182,12 +186,27 @@ tests/integration/   auth · recepciones · controles · limpiezas · inspeccion
 
 ## Despliegue
 
-Pensado para Render (backend) y MongoDB Atlas:
+Pensado para Render (backend) y MongoDB Atlas. El repositorio trae un
+`render.yaml`: creando el servicio como _Blueprint_, Render toma de ahí los
+comandos y pide los secretos uno por uno. A mano, la configuración es:
 
-1. Build `npm install && npm run build`, arranque `npm start`.
-2. Cargar las variables de entorno del `.env.example`.
-3. Añadir el dominio del frontend a `CORS_ORIGINS`.
-4. Programar el cron externo contra `POST /api/tareas/alertas` con la cabecera `x-cron-secret`.
+| Ajuste            | Valor                                   |
+| ----------------- | --------------------------------------- |
+| Build Command     | `npm ci --include=dev && npm run build` |
+| Start Command     | `npm run start`                         |
+| Health Check Path | `/health`                               |
+
+**El `--include=dev` no es opcional.** Render define `NODE_ENV=production` en el
+entorno del build y, con esa variable, `npm install` omite las dependencias de
+desarrollo. Como el proyecto compila TypeScript antes de arrancar, sin ellas no
+hay compilador ni `@types/node`, y el build termina en
+`error TS2688: Cannot find type definition file for 'node'`.
+
+Después:
+
+1. Cargar las variables de entorno del `.env.example`.
+2. Añadir el dominio del frontend a `CORS_ORIGINS`.
+3. Programar el cron externo contra `POST /api/tareas/alertas` con la cabecera `x-cron-secret`.
 
 En el plan gratuito el servidor se suspende tras un período de inactividad y la
 primera petición puede tardar cerca de un minuto. Conviene limitar el ping
@@ -213,6 +232,6 @@ ventana máxima consultable es de 92 días, para no traer la base entera de una 
 **Quién adjunta la evidencia del cierre.** El responsable del puesto sube la
 prueba de que ejecutó la acción con
 `POST /api/no-conformidades/:id/evidencia-cierre`; eso no cierra nada, solo pasa
-la acción a *en proceso*, acumula la evidencia y avisa a la supervisión. Cerrar
+la acción a _en proceso_, acumula la evidencia y avisa a la supervisión. Cerrar
 sigue siendo exclusivo del supervisor, que verifica primero. La respuesta incluye
 `listaParaVerificar` para que la interfaz sepa cuándo ofrecer el botón de cierre.
