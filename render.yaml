@@ -47,8 +47,3 @@ services:
       # Protege la tarea de alertas programadas. Sin ella responde 503.
       - key: CRON_SECRET
         sync: false
-
-      # Orígenes del frontend, separados por coma. Sin el dominio correcto el
-      # navegador bloquea las llamadas de la aplicación desplegada.
-      - key: CORS_ORIGINS
-        sync: false

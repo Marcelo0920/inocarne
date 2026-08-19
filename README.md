@@ -205,8 +205,7 @@ hay compilador ni `@types/node`, y el build termina en
 Después:
 
 1. Cargar las variables de entorno del `.env.example`.
-2. Añadir el dominio del frontend a `CORS_ORIGINS`.
-3. Programar el cron externo contra `POST /api/tareas/alertas` con la cabecera `x-cron-secret`.
+2. Programar el cron externo contra `POST /api/tareas/alertas` con la cabecera `x-cron-secret`.
 
 En el plan gratuito el servidor se suspende tras un período de inactividad y la
 primera petición puede tardar cerca de un minuto. Conviene limitar el ping

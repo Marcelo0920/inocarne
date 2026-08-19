@@ -16,12 +16,10 @@ export function crearApp(): Express {
 
   app.set('trust proxy', 1);
   app.use(helmet());
-  app.use(
-    cors({
-      origin: env.corsOrigins.length ? env.corsOrigins : true,
-      credentials: true,
-    }),
-  );
+  // La API no usa cookies: la sesión viaja en la cabecera Authorization, así
+  // que restringir el origen no protegería nada y sí obliga a reconfigurar el
+  // servidor cada vez que el frontend cambia de dominio.
+  app.use(cors());
   // Antes de las rutas: toda respuesta sale con 'id', nunca con '_id'.
   app.use(serializarRespuestas);
   app.use(express.json({ limit: '1mb' }));

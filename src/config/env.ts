@@ -25,8 +25,6 @@ const envSchema = z.object({
   CLOUDINARY_FOLDER: z.string().default('inocarne'),
 
   CRON_SECRET: z.string().default(''),
-
-  CORS_ORIGINS: z.string().default('http://localhost:5173'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -45,9 +43,6 @@ export const env = {
   isProduction: raw.NODE_ENV === 'production',
   isTest: raw.NODE_ENV === 'test',
   isDevelopment: raw.NODE_ENV === 'development',
-  corsOrigins: raw.CORS_ORIGINS.split(',')
-    .map((o) => o.trim())
-    .filter(Boolean),
 };
 
 export const isCloudinaryConfigured = (): boolean =>
