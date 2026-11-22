@@ -37,7 +37,6 @@ describe('pH según el tipo de carne', () => {
   it('usa 5,4 – 5,8 para las carnes rojas', () => {
     expect(rangoPhPara('res', RANGOS)).toEqual({ min: 5.4, max: 5.8 });
     expect(rangoPhPara('cerdo', RANGOS)).toEqual({ min: 5.4, max: 5.8 });
-    expect(rangoPhPara('cordero', RANGOS)).toEqual({ min: 5.4, max: 5.8 });
   });
 
   it('usa 5,8 – 6,2 para el pollo', () => {

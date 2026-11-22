@@ -6,11 +6,11 @@ export type Rol = (typeof ROLES)[number];
 export const ROLES_SUPERVISION: readonly Rol[] = ['supervisor', 'coordinador', 'admin'];
 
 /** Tipos de carne, de los que depende el rango de pH aceptado. */
-export const TIPOS_CARNE = ['res', 'cerdo', 'cordero', 'pollo'] as const;
+export const TIPOS_CARNE = ['res', 'cerdo', 'pollo'] as const;
 export type TipoCarne = (typeof TIPOS_CARNE)[number];
 
 /** Las carnes rojas comparten rango de pH; el pollo tiene el suyo. */
-export const CARNES_ROJAS: readonly TipoCarne[] = ['res', 'cerdo', 'cordero'];
+export const CARNES_ROJAS: readonly TipoCarne[] = ['res', 'cerdo'];
 
 /** Resultado de una recepción de carne. */
 export const RESULTADOS_RECEPCION = ['aceptado', 'rechazado'] as const;
