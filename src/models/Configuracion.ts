@@ -3,17 +3,16 @@ import { CONFIGURACION_POR_DEFECTO } from '../domain/constants.js';
 import { baseSchemaOptions, registrarModelo } from './shared.js';
 
 /**
- * Documento único con los parámetros del sistema: rangos aceptados, horarios
- * programados y tolerancia. Solo el administrador puede modificarlo.
+ * Documento único con los parámetros del sistema: rangos aceptados y cuántos
+ * controles de cada tipo corresponden por día. Solo el administrador puede modificarlo.
  */
 export interface Configuracion {
   clave: string;
   temperaturaMaxima: number;
   rangoPhRojas: { min: number; max: number };
   rangoPhPollo: { min: number; max: number };
-  horariosExhibicion: string[];
-  horariosRefrigeracion: string[];
-  toleranciaMinutos: number;
+  controlesExhibicionPorDia: number;
+  controlesRefrigeracionPorDia: number;
   diasAvisoPlagas: number[];
   diasAvisoMantenimiento: number;
   puntosLimpieza: string[];
@@ -39,19 +38,17 @@ const configuracionSchema = new Schema<Configuracion>(
       type: rangoSchema,
       default: () => ({ ...CONFIGURACION_POR_DEFECTO.rangoPhPollo }),
     },
-    horariosExhibicion: {
-      type: [String],
-      default: () => [...CONFIGURACION_POR_DEFECTO.horariosExhibicion],
-    },
-    horariosRefrigeracion: {
-      type: [String],
-      default: () => [...CONFIGURACION_POR_DEFECTO.horariosRefrigeracion],
-    },
-    toleranciaMinutos: {
+    controlesExhibicionPorDia: {
       type: Number,
-      default: CONFIGURACION_POR_DEFECTO.toleranciaMinutos,
-      min: 0,
-      max: 240,
+      default: CONFIGURACION_POR_DEFECTO.controlesExhibicionPorDia,
+      min: 1,
+      max: 12,
+    },
+    controlesRefrigeracionPorDia: {
+      type: Number,
+      default: CONFIGURACION_POR_DEFECTO.controlesRefrigeracionPorDia,
+      min: 1,
+      max: 12,
     },
     diasAvisoPlagas: {
       type: [Number],

@@ -195,31 +195,66 @@ describe('tarea programada de alertas', () => {
     expect(correcta.status).toBe(200);
   });
 
-  it('avisa de los controles que no se realizaron', async () => {
-    // La franja de las 13:30 sigue pendiente a las 12:00: no debe generar aviso.
+  it('avisa de los controles que faltaron el día anterior', async () => {
     await actualizarConfiguracion({
-      horariosExhibicion: ['07:00'],
-      horariosRefrigeracion: ['13:30'],
-      toleranciaMinutos: 15,
+      controlesExhibicionPorDia: 2,
+      controlesRefrigeracionPorDia: 1,
     });
     const { sesion } = await crearSesionPuesto(1);
+    const hoy = zonedDayKey(new Date(), TZ);
+    const ayer = zonedDayKey(new Date(Date.now() - 24 * 60 * 60 * 1000), TZ);
 
-    const dia = zonedDayKey(new Date(), TZ);
-    const resultado = await evaluarAlertas(zonedTimeToUtc(dia, '12:00', TZ));
+    // Ayer hizo un control de exhibición de dos y el de refrigeración completo.
+    await request(app)
+      .post('/api/controles')
+      .set('Authorization', sesion.auth)
+      .send({
+        tipo: 'exhibicion',
+        temperatura: 4,
+        ph: 5.6,
+        tipoCarne: 'res',
+        horaDispositivo: zonedTimeToUtc(ayer, '09:00', TZ).toISOString(),
+      });
+    await request(app)
+      .post('/api/controles')
+      .set('Authorization', sesion.auth)
+      .send({
+        tipo: 'refrigeracion',
+        temperatura: 3,
+        horaDispositivo: zonedTimeToUtc(ayer, '09:05', TZ).toISOString(),
+      });
+
+    const resultado = await evaluarAlertas(zonedTimeToUtc(hoy, '08:00', TZ));
 
     expect(resultado.controlesNoRealizados).toBe(1);
 
     const avisos = await request(app).get('/api/notificaciones').set('Authorization', sesion.auth);
     expect(avisos.body.data[0].tipo).toBe('control_pendiente');
-    expect(avisos.body.data[0].mensaje).toMatch(/07:00 no fue registrado/);
+    expect(avisos.body.data[0].mensaje).toMatch(/faltó 1 de 2 controles de exhibición/);
+  });
+
+  it('no avisa de los controles del día en curso, aunque sea tarde', async () => {
+    await actualizarConfiguracion({
+      controlesExhibicionPorDia: 1,
+      controlesRefrigeracionPorDia: 1,
+    });
+    await crearSesionPuesto(1);
+    const hoy = zonedDayKey(new Date(), TZ);
+
+    // Ayer tampoco hubo registros (2 avisos), pero los de hoy no deben contar.
+    const resultado = await evaluarAlertas(zonedTimeToUtc(hoy, '23:00', TZ));
+    const avisosDeHoy = await NotificacionModel.find({
+      'referencia.coleccion': { $regex: hoy },
+    }).lean();
+
+    expect(resultado.controlesNoRealizados).toBe(2);
+    expect(avisosDeHoy).toHaveLength(0);
   });
 
   it('no repite el mismo aviso en cada ejecución', async () => {
-    // La franja de las 13:30 sigue pendiente a las 12:00: no debe generar aviso.
     await actualizarConfiguracion({
-      horariosExhibicion: ['07:00'],
-      horariosRefrigeracion: ['13:30'],
-      toleranciaMinutos: 15,
+      controlesExhibicionPorDia: 1,
+      controlesRefrigeracionPorDia: 1,
     });
     await crearSesionPuesto(1);
     const dia = zonedDayKey(new Date(), TZ);
@@ -228,12 +263,11 @@ describe('tarea programada de alertas', () => {
     const primera = await evaluarAlertas(ahora);
     const segunda = await evaluarAlertas(ahora);
 
-    expect(primera.controlesNoRealizados).toBe(1);
+    expect(primera.controlesNoRealizados).toBe(2);
     expect(segunda.controlesNoRealizados).toBe(0);
   });
 
   it('alerta de mantenimientos vencidos y acciones correctivas vencidas', async () => {
-    await actualizarConfiguracion({ horariosExhibicion: [], horariosRefrigeracion: [] });
     const { sesion, puesto } = await crearSesionPuesto(1);
     const supervisor = await crearSesion({ rol: 'supervisor', usuario: 'supervisora' });
 

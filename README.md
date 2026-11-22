@@ -26,6 +26,8 @@ npm run dev               # http://localhost:4000
 | `npm run build` && `npm start` | Compilar y ejecutar en producción                         |
 | `npm run seed`                 | Crea configuración, puestos y usuarios de ejemplo         |
 | `npm run seed -- --reset`      | Borra y vuelve a crear (nunca en producción)              |
+| `npm run migrar`               | Informa qué datos viejos hay que adaptar (no cambia nada) |
+| `npm run migrar -- --confirmar` | Adapta los controles guardados con horario programado    |
 
 ### Variables de entorno
 
@@ -48,7 +50,7 @@ src/
   domain/        reglas puras, sin base de datos ni Express
                  · time.ts        conversión entre UTC y hora local del mercado
                  · ranges.ts      validación de temperatura y pH
-                 · compliance.ts  a tiempo / con retraso / pendiente / no realizado
+                 · compliance.ts  realizado / pendiente / no realizado
                  · maintenance.ts realizado / próximo / vencido
   models/        14 modelos de Mongoose
   services/      configuración, auditoría, notificaciones, Cloudinary
@@ -67,18 +69,21 @@ La lógica de negocio vive en `domain/` como funciones puras. Por eso las reglas
 
 | Regla                                                                                                        | Dónde vive                                     |
 | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| **R1** La fecha y la hora las pone el servidor; el cliente no puede fijarlas (`registradoEn` es `immutable`) | modelos + servicios                            |
+| **R1** La hora del servidor (`registradoEn`) se guarda siempre y es `immutable`. En los controles diarios la hora que se muestra es la del teléfono (`horaDispositivo`); la del servidor queda solo para auditoría | modelos + servicios                            |
 | **R2** Los registros no se editan ni se borran; toda operación queda en `auditoria`                          | `services/auditoria.service.ts`                |
 | **R3** Temperatura ≤ 5 °C · pH 5,4–5,8 rojas · 5,8–6,2 pollo, según el tipo de carne                         | `domain/ranges.ts`                             |
-| **R4** A tiempo / con retraso / pendiente / no realizado, con tolerancia configurable (15 min)               | `domain/compliance.ts`                         |
+| **R4** Los controles no tienen horario ni puntualidad: realizado, pendiente mientras dura el día, o no realizado cuando el día terminó. Cada tipo tiene una cantidad por día configurable (exhibición 3, refrigeración 2) | `domain/compliance.ts`                         |
 | **R5** La recepción no tiene horario fijo: nunca se marca con retraso                                        | `modules/recepciones`                          |
 | **R6** Evidencia fotográfica obligatoria cuando la carne no cumple; firma en pantalla en la recepción        | `modules/recepciones`                          |
 | **R7** Un "no cumple" en una inspección crea la no conformidad con los datos ya cargados                     | `modules/inspecciones`                         |
 | **R8** El semáforo y el plazo vencido se calculan al consultar; no se almacenan                              | `modules/dashboard`, `modules/noConformidades` |
 
-Un índice único por `(tipo, puestoId, dia, franjaProgramada)` impide registrar dos
-veces el mismo control del mismo día, y otro por `(puestoId, dia, turno)` hace lo
-mismo con los checklists de limpieza.
+El servidor numera los controles de cada día (1, 2, 3…) y no acepta más de los
+configurados. Un índice único por `(tipo, puestoId, dia, numero)` impide que dos
+registros ocupen el mismo número, otro por `(tipo, puestoId, horaDispositivo)` hace
+que un reenvío de la cola sin conexión responda `409` en lugar de duplicarse, y uno
+por `(puestoId, dia, turno)` impide repetir un checklist de limpieza. El día de un
+control sale de la hora del teléfono.
 
 ---
 
@@ -103,8 +108,8 @@ Todo cuelga de `/api`. Salvo el ingreso, todo exige `Authorization: Bearer <toke
 | Método           | Ruta                                      | Qué hace                                                 |
 | ---------------- | ----------------------------------------- | -------------------------------------------------------- |
 | `POST·GET`       | `/recepciones`                            | Recepción de carne, con firma y evidencia                |
-| `POST`           | `/controles`                              | Control de exhibición o de refrigeración                 |
-| `GET`            | `/controles/dia`                          | Estado de las franjas del día                            |
+| `POST`           | `/controles`                              | Control de exhibición o de refrigeración (`horaDispositivo` obligatoria) |
+| `GET`            | `/controles/dia`                          | Controles del día, hechos y pendientes                   |
 | `POST·GET`       | `/limpiezas`                              | Checklist de limpieza por turno                          |
 | `GET`            | `/limpiezas/plantilla` · `/limpiezas/dia` | Puntos del checklist y estado del día                    |
 | `POST·GET·PATCH` | `/equipos`                                | Inventario de equipos                                    |
@@ -138,7 +143,7 @@ Todo cuelga de `/api`. Salvo el ingreso, todo exige `Authorization: Bearer <toke
 | `POST` | `/tareas/alertas`        | cabecera `x-cron-secret` |
 | `POST` | `/tareas/alertas/manual` | admin                    |
 
-Evalúa controles no realizados, mantenimientos próximos y vencidos, acciones
+Avisa de los controles que faltaron el día anterior, mantenimientos próximos y vencidos, acciones
 correctivas por vencer y entrega los avisos programados de fumigación.
 Conviene llamarla cada hora dentro del horario del mercado; la misma llamada
 mantiene despierto el servidor en planes gratuitos que suspenden por inactividad.
@@ -172,14 +177,14 @@ reducirlas en el navegador antes de subirlas, porque el plan gratuito tiene cuot
 npm test
 ```
 
-**176 pruebas.** Las de dominio no tocan la base de datos; las de integración
+**218 pruebas.** Las de dominio no tocan la base de datos; las de integración
 levantan un MongoDB en memoria (`mongodb-memory-server`) y llaman a las rutas
 HTTP reales con Supertest. No hace falta ninguna credencial ni conexión a Atlas.
 
 ```
 tests/unit/          time · ranges · compliance
 tests/integration/   auth · recepciones · controles · limpiezas · inspecciones ·
-                     equipos · dashboard · historial · gestion
+                     equipos · dashboard · historial · gestion · migracion
 ```
 
 ---
@@ -206,6 +211,9 @@ Después:
 
 1. Cargar las variables de entorno del `.env.example`.
 2. Programar el cron externo contra `POST /api/tareas/alertas` con la cabecera `x-cron-secret`.
+3. Si la base ya tiene controles guardados con horario programado, correr una vez
+   `npm run migrar -- --confirmar` apenas se despliega esta versión: hasta entonces
+   el índice viejo por franja rechazaría el segundo control del día.
 
 En el plan gratuito el servidor se suspende tras un período de inactividad y la
 primera petición puede tardar cerca de un minuto. Conviene limitar el ping

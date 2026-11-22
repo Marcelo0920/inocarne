@@ -90,17 +90,16 @@ export async function generarReporteExcel(rango: RangoReporte): Promise<ExcelJS.
     });
   }
 
-  // ── Controles horarios ──────────────────────────────────────
-  const controles = await ControlModel.find(filtroBase(rango, 'registradoEn'))
-    .sort({ registradoEn: 1 })
+  // ── Controles diarios (hora del teléfono) ───────────────────
+  const controles = await ControlModel.find(filtroBase(rango, 'horaDispositivo'))
+    .sort({ horaDispositivo: 1 })
     .lean();
   const hojaControles = libro.addWorksheet('Controles');
   prepararHoja(hojaControles, [
     { header: 'Puesto', key: 'puesto', width: 28 },
     { header: 'Fecha y hora', key: 'fecha', width: 18 },
     { header: 'Tipo', key: 'tipo', width: 16 },
-    { header: 'Horario programado', key: 'franja', width: 18 },
-    { header: 'Cumplimiento', key: 'cumplimiento', width: 16 },
+    { header: 'N.º de control', key: 'numero', width: 14 },
     { header: 'Temperatura (°C)', key: 'temperatura', width: 16 },
     { header: 'pH', key: 'ph', width: 10 },
     { header: 'Tipo de carne', key: 'tipoCarne', width: 14 },
@@ -110,10 +109,9 @@ export async function generarReporteExcel(rango: RangoReporte): Promise<ExcelJS.
   for (const c of controles) {
     hojaControles.addRow({
       puesto: nombrePuesto(c.puestoId),
-      fecha: formatInZone(c.registradoEn, TZ),
+      fecha: formatInZone(c.horaDispositivo, TZ),
       tipo: c.tipo,
-      franja: c.franjaProgramada,
-      cumplimiento: c.cumplimiento === 'a_tiempo' ? 'A tiempo' : 'Con retraso',
+      numero: c.numero,
       temperatura: c.temperatura,
       ph: c.ph ?? '',
       tipoCarne: c.tipoCarne ?? '',

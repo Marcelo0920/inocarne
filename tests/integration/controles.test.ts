@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { zonedDayKey, zonedTimeKey, zonedTimeToUtc } from '../../src/domain/time.js';
+import { zonedDayKey, zonedTimeToUtc } from '../../src/domain/time.js';
+import { ControlModel } from '../../src/models/Control.js';
 import { estadoDelDia } from '../../src/modules/controles/controles.service.js';
 import {
   actualizarConfiguracion,
@@ -11,25 +12,9 @@ import { app, crearSesion, crearSesionPuesto } from '../helpers/factories.js';
 
 const TZ = 'America/La_Paz';
 
-/** Hora local `HH:mm` desplazada en minutos respecto de ahora. */
-function horaLocalDesplazada(minutos: number): string {
-  return zonedTimeKey(new Date(Date.now() + minutos * 60_000), TZ);
-}
-
-/**
- * Franja dentro de la tolerancia, sin cruzar la medianoche local.
- *
- * El cumplimiento se calcula dentro de un mismo día del mercado. Restar
- * minutos de madrugada daría una hora del día anterior y el control aparecería
- * con retraso, así que cerca de la medianoche el desplazamiento va hacia
- * adelante: dentro de la ventana igual, pero sin cambiar de día.
- */
-function franjaDentroDeTolerancia(minutos: number): string {
-  const [horas = '0', min = '0'] = zonedTimeKey(new Date(), TZ).split(':');
-  const minutosDelDia = Number(horas) * 60 + Number(min);
-  const haciaAtras = minutosDelDia >= minutos && minutosDelDia + minutos < 24 * 60;
-  return horaLocalDesplazada(haciaAtras ? -minutos : minutos);
-}
+/** Hora del teléfono desplazada en minutos respecto de ahora, como la manda el cliente. */
+const horaDelTelefono = (minutos = 0): string =>
+  new Date(Date.now() + minutos * 60_000).toISOString();
 
 const controlExhibicion = {
   tipo: 'exhibicion' as const,
@@ -51,67 +36,85 @@ beforeEach(async () => {
   invalidarConfiguracion();
 });
 
-describe('POST /api/controles — cumplimiento horario (regla R4)', () => {
-  it('marca a tiempo un registro hecho dentro de la tolerancia', async () => {
-    const franja = horaLocalDesplazada(0);
-    await actualizarConfiguracion({ horariosExhibicion: [franja], toleranciaMinutos: 15 });
+describe('POST /api/controles — hora del teléfono, sin horario fijo', () => {
+  it('guarda la hora del teléfono y aparte la hora del servidor', async () => {
     const { sesion } = await crearSesionPuesto(1);
+    const hora = horaDelTelefono(-10);
+    const antes = Date.now();
 
     const respuesta = await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ ...controlExhibicion, franjaProgramada: franja });
+      .send({ ...controlExhibicion, horaDispositivo: hora });
 
     expect(respuesta.status).toBe(201);
-    expect(respuesta.body.cumplimiento).toBe('a_tiempo');
-    expect(respuesta.body.dentroRango).toBe(true);
+    expect(respuesta.body.horaDispositivo).toBe(hora);
+    expect(new Date(respuesta.body.registradoEn).getTime()).toBeGreaterThanOrEqual(antes - 1000);
+    expect(respuesta.body.registradoEn).not.toBe(hora);
   });
 
-  it('marca con retraso un registro fuera de la tolerancia', async () => {
-    const franja = horaLocalDesplazada(-90);
-    await actualizarConfiguracion({ horariosExhibicion: [franja], toleranciaMinutos: 15 });
+  it('no evalúa puntualidad: no existe estado a tiempo ni con retraso', async () => {
     const { sesion } = await crearSesionPuesto(1);
 
     const respuesta = await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ ...controlExhibicion, franjaProgramada: franja });
+      .send({ ...controlExhibicion, horaDispositivo: horaDelTelefono(-180) });
 
     expect(respuesta.status).toBe(201);
-    expect(respuesta.body.cumplimiento).toBe('con_retraso');
+    expect(respuesta.body).not.toHaveProperty('cumplimiento');
+    expect(respuesta.body).not.toHaveProperty('franjaProgramada');
   });
 
-  it('respeta una tolerancia configurada más amplia', async () => {
-    const franja = franjaDentroDeTolerancia(40);
-    await actualizarConfiguracion({ horariosExhibicion: [franja], toleranciaMinutos: 60 });
+  it('el día del control sale de la hora del teléfono', async () => {
     const { sesion } = await crearSesionPuesto(1);
+    const ayerALas22 = zonedTimeToUtc('2026-02-09', '22:00', TZ).toISOString();
 
     const respuesta = await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ ...controlExhibicion, franjaProgramada: franja });
+      .send({ ...controlExhibicion, horaDispositivo: ayerALas22 });
 
-    expect(respuesta.body.cumplimiento).toBe('a_tiempo');
+    expect(respuesta.status).toBe(201);
+    expect(respuesta.body.dia).toBe('2026-02-09');
   });
 
-  it('rechaza una franja que no está programada', async () => {
-    await actualizarConfiguracion({ horariosExhibicion: ['07:00', '10:30', '13:30'] });
+  it('numera los controles del día en orden de llegada', async () => {
+    await actualizarConfiguracion({ controlesExhibicionPorDia: 3 });
     const { sesion } = await crearSesionPuesto(1);
 
-    const respuesta = await request(app)
-      .post('/api/controles')
-      .set('Authorization', sesion.auth)
-      .send({ ...controlExhibicion, franjaProgramada: '09:15' });
+    const numeros: number[] = [];
+    for (const minutos of [-30, -20, -10]) {
+      const respuesta = await request(app)
+        .post('/api/controles')
+        .set('Authorization', sesion.auth)
+        .send({ ...controlExhibicion, horaDispositivo: horaDelTelefono(minutos) });
+      numeros.push(respuesta.body.numero);
+    }
 
-    expect(respuesta.status).toBe(400);
-    expect(respuesta.body.error.mensaje).toMatch(/no está programado/i);
+    expect(numeros).toEqual([1, 2, 3]);
   });
 
-  it('no permite registrar dos veces la misma franja el mismo día', async () => {
-    const franja = horaLocalDesplazada(0);
-    await actualizarConfiguracion({ horariosExhibicion: [franja] });
+  it('no permite más controles de los que corresponden al día', async () => {
+    await actualizarConfiguracion({ controlesRefrigeracionPorDia: 2 });
     const { sesion } = await crearSesionPuesto(1);
-    const cuerpo = { ...controlExhibicion, franjaProgramada: franja };
+    const enviar = (minutos: number) =>
+      request(app)
+        .post('/api/controles')
+        .set('Authorization', sesion.auth)
+        .send({ tipo: 'refrigeracion', temperatura: 3, horaDispositivo: horaDelTelefono(minutos) });
+
+    await enviar(-30);
+    await enviar(-20);
+    const tercero = await enviar(-10);
+
+    expect(tercero.status).toBe(409);
+    expect(tercero.body.error.mensaje).toMatch(/ya registró los 2 controles de refrigeración/i);
+  });
+
+  it('reenviar el mismo registro responde 409 y no lo duplica', async () => {
+    const { sesion } = await crearSesionPuesto(1);
+    const cuerpo = { ...controlExhibicion, horaDispositivo: horaDelTelefono(-5) };
 
     const primero = await request(app)
       .post('/api/controles')
@@ -125,14 +128,13 @@ describe('POST /api/controles — cumplimiento horario (regla R4)', () => {
     expect(primero.status).toBe(201);
     expect(segundo.status).toBe(409);
     expect(segundo.body.error.mensaje).toMatch(/ya fue registrado/i);
+    expect(await ControlModel.countDocuments()).toBe(1);
   });
 
-  it('dos puestos distintos pueden registrar la misma franja', async () => {
-    const franja = horaLocalDesplazada(0);
-    await actualizarConfiguracion({ horariosExhibicion: [franja] });
+  it('dos puestos llevan su propia numeración', async () => {
     const puesto1 = await crearSesionPuesto(1);
     const puesto2 = await crearSesionPuesto(2);
-    const cuerpo = { ...controlExhibicion, franjaProgramada: franja };
+    const cuerpo = { ...controlExhibicion, horaDispositivo: horaDelTelefono(-5) };
 
     const a = await request(app)
       .post('/api/controles')
@@ -145,47 +147,66 @@ describe('POST /api/controles — cumplimiento horario (regla R4)', () => {
 
     expect(a.status).toBe(201);
     expect(b.status).toBe(201);
+    expect(b.body.numero).toBe(1);
   });
-});
 
-describe('POST /api/controles — validación de mediciones', () => {
-  it('marca fuera de rango una temperatura mayor a 5 °C', async () => {
-    const franja = horaLocalDesplazada(0);
-    await actualizarConfiguracion({ horariosExhibicion: [franja] });
+  it('exige la hora del teléfono', async () => {
     const { sesion } = await crearSesionPuesto(1);
 
     const respuesta = await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ ...controlExhibicion, franjaProgramada: franja, temperatura: 7.4 });
+      .send(controlExhibicion);
+
+    expect(respuesta.status).toBe(400);
+    expect(respuesta.body.error.detalle).toHaveProperty('horaDispositivo');
+  });
+
+  it('rechaza una hora del teléfono que no es una fecha válida', async () => {
+    const { sesion } = await crearSesionPuesto(1);
+
+    const respuesta = await request(app)
+      .post('/api/controles')
+      .set('Authorization', sesion.auth)
+      .send({ ...controlExhibicion, horaDispositivo: '10:30' });
+
+    expect(respuesta.status).toBe(400);
+    expect(respuesta.body.error.detalle).toHaveProperty('horaDispositivo');
+  });
+});
+
+describe('POST /api/controles — validación de mediciones', () => {
+  it('marca fuera de rango una temperatura mayor a 5 °C', async () => {
+    const { sesion } = await crearSesionPuesto(1);
+
+    const respuesta = await request(app)
+      .post('/api/controles')
+      .set('Authorization', sesion.auth)
+      .send({ ...controlExhibicion, temperatura: 7.4, horaDispositivo: horaDelTelefono() });
 
     expect(respuesta.body.dentroRango).toBe(false);
     expect(respuesta.body.desviaciones).toHaveLength(1);
   });
 
   it('el control de exhibición exige pH y tipo de carne', async () => {
-    const franja = horaLocalDesplazada(0);
-    await actualizarConfiguracion({ horariosExhibicion: [franja] });
     const { sesion } = await crearSesionPuesto(1);
 
     const respuesta = await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ tipo: 'exhibicion', franjaProgramada: franja, temperatura: 4 });
+      .send({ tipo: 'exhibicion', temperatura: 4, horaDispositivo: horaDelTelefono() });
 
     expect(respuesta.status).toBe(400);
     expect(respuesta.body.error.detalle).toHaveProperty('ph');
   });
 
   it('el control de refrigeración solo necesita la temperatura', async () => {
-    const franja = horaLocalDesplazada(0);
-    await actualizarConfiguracion({ horariosRefrigeracion: [franja] });
     const { sesion } = await crearSesionPuesto(1);
 
     const respuesta = await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ tipo: 'refrigeracion', franjaProgramada: franja, temperatura: 2.8 });
+      .send({ tipo: 'refrigeracion', temperatura: 2.8, horaDispositivo: horaDelTelefono() });
 
     expect(respuesta.status).toBe(201);
     expect(respuesta.body.ph).toBeNull();
@@ -193,83 +214,89 @@ describe('POST /api/controles — validación de mediciones', () => {
   });
 });
 
-describe('estado de las franjas del día', () => {
-  it('una franja cuya ventana ya cerró sin registro queda no realizada', async () => {
+describe('estado de los controles del día', () => {
+  it('cada tipo tiene tantos controles como indica la configuración', async () => {
     await actualizarConfiguracion({
-      horariosExhibicion: ['07:00'],
-      horariosRefrigeracion: ['07:00'],
-      toleranciaMinutos: 15,
+      controlesExhibicionPorDia: 3,
+      controlesRefrigeracionPorDia: 2,
     });
     const { puesto } = await crearSesionPuesto(1);
-    const dia = '2026-02-09';
-    const ahora = zonedTimeToUtc(dia, '12:00', TZ);
 
-    const { franjas } = await estadoDelDia(String(puesto._id), dia, ahora);
+    const { controles } = await estadoDelDia(String(puesto._id), '2026-02-09');
 
-    expect(franjas).toHaveLength(2);
-    expect(franjas.every((f) => f.estado === 'no_realizado')).toBe(true);
-    expect(franjas.every((f) => f.semaforo === 'rojo')).toBe(true);
+    expect(controles.filter((c) => c.tipo === 'exhibicion').map((c) => c.numero)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(controles.filter((c) => c.tipo === 'refrigeracion').map((c) => c.numero)).toEqual([
+      1, 2,
+    ]);
   });
 
-  it('una franja que todavía no vence queda pendiente', async () => {
-    await actualizarConfiguracion({
-      horariosExhibicion: ['13:30'],
-      horariosRefrigeracion: ['13:30'],
-    });
+  it('un control sin registro queda pendiente mientras dure el día, a cualquier hora', async () => {
     const { puesto } = await crearSesionPuesto(1);
     const dia = '2026-02-09';
-    const ahora = zonedTimeToUtc(dia, '09:00', TZ);
 
-    const { franjas } = await estadoDelDia(String(puesto._id), dia, ahora);
+    const { controles } = await estadoDelDia(
+      String(puesto._id),
+      dia,
+      zonedTimeToUtc(dia, '23:00', TZ),
+    );
 
-    expect(franjas.every((f) => f.estado === 'pendiente')).toBe(true);
-    expect(franjas.every((f) => f.semaforo === 'gris')).toBe(true);
+    expect(controles.every((c) => c.estado === 'pendiente')).toBe(true);
+    expect(controles.every((c) => c.semaforo === 'gris')).toBe(true);
   });
 
-  it('devuelve el registro junto a la franja cuando ya fue realizado', async () => {
-    const franja = horaLocalDesplazada(0);
-    await actualizarConfiguracion({
-      horariosExhibicion: [franja],
-      horariosRefrigeracion: [franja],
-    });
+  it('un control sin registro queda no realizado cuando el día terminó', async () => {
+    const { puesto } = await crearSesionPuesto(1);
+    const ahora = zonedTimeToUtc('2026-02-10', '08:00', TZ);
+
+    const { controles } = await estadoDelDia(String(puesto._id), '2026-02-09', ahora);
+
+    expect(controles.every((c) => c.estado === 'no_realizado')).toBe(true);
+    expect(controles.every((c) => c.semaforo === 'rojo')).toBe(true);
+  });
+
+  it('devuelve el registro en el primer control del tipo cuando ya se realizó', async () => {
     const { sesion, puesto } = await crearSesionPuesto(1);
+    const hora = horaDelTelefono();
 
     await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ ...controlExhibicion, franjaProgramada: franja });
+      .send({ ...controlExhibicion, horaDispositivo: hora });
 
-    const { franjas } = await estadoDelDia(String(puesto._id), zonedDayKey(new Date(), TZ));
-    const exhibicion = franjas.find((f) => f.tipo === 'exhibicion');
-    const refrigeracion = franjas.find((f) => f.tipo === 'refrigeracion');
+    const { controles } = await estadoDelDia(String(puesto._id), zonedDayKey(new Date(hora), TZ));
+    const primero = controles.find((c) => c.tipo === 'exhibicion' && c.numero === 1);
+    const segundo = controles.find((c) => c.tipo === 'exhibicion' && c.numero === 2);
+    const refrigeracion = controles.find((c) => c.tipo === 'refrigeracion');
 
-    expect(exhibicion?.estado).toBe('a_tiempo');
-    expect(exhibicion?.semaforo).toBe('verde');
-    expect(exhibicion?.registro).not.toBeNull();
+    expect(primero?.estado).toBe('realizado');
+    expect(primero?.semaforo).toBe('verde');
+    expect(primero?.registro?.horaDispositivo).toEqual(new Date(hora));
+    expect(segundo?.registro).toBeNull();
     expect(refrigeracion?.registro).toBeNull();
   });
 
-  it('un control con medición fuera de rango es rojo aunque sea puntual', async () => {
-    const franja = horaLocalDesplazada(0);
-    await actualizarConfiguracion({ horariosExhibicion: [franja], horariosRefrigeracion: [] });
+  it('un control con medición fuera de rango es rojo', async () => {
     const { sesion, puesto } = await crearSesionPuesto(1);
+    const hora = horaDelTelefono();
 
     await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ ...controlExhibicion, franjaProgramada: franja, temperatura: 9 });
+      .send({ ...controlExhibicion, temperatura: 9, horaDispositivo: hora });
 
-    const { franjas } = await estadoDelDia(String(puesto._id), zonedDayKey(new Date(), TZ));
-    expect(franjas[0]?.estado).toBe('a_tiempo');
-    expect(franjas[0]?.semaforo).toBe('rojo');
+    const { controles } = await estadoDelDia(String(puesto._id), zonedDayKey(new Date(hora), TZ));
+    expect(controles[0]?.estado).toBe('realizado');
+    expect(controles[0]?.semaforo).toBe('rojo');
   });
 });
 
 describe('GET /api/controles/dia', () => {
   it('el vendedor consulta su propio día sin indicar el puesto', async () => {
     await actualizarConfiguracion({
-      horariosExhibicion: ['07:00', '10:30', '13:30'],
-      horariosRefrigeracion: ['07:00', '13:30'],
+      controlesExhibicionPorDia: 3,
+      controlesRefrigeracionPorDia: 2,
     });
     const { sesion } = await crearSesionPuesto(1);
 
@@ -278,7 +305,7 @@ describe('GET /api/controles/dia', () => {
       .set('Authorization', sesion.auth);
 
     expect(respuesta.status).toBe(200);
-    expect(respuesta.body.franjas).toHaveLength(5);
+    expect(respuesta.body.controles).toHaveLength(5);
   });
 
   it('el vendedor no puede consultar el día de otro puesto', async () => {

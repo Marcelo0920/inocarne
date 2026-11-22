@@ -1,6 +1,5 @@
 import { Types, type FilterQuery } from 'mongoose';
 import { env } from '../../config/env.js';
-import { semaforoDeControl } from '../../domain/compliance.js';
 import type { Semaforo } from '../../domain/constants.js';
 import { endOfZonedDay, startOfZonedDay, zonedTimeKey } from '../../domain/time.js';
 import { ControlModel } from '../../models/Control.js';
@@ -124,31 +123,27 @@ export async function listarHistorial(
 
   const tiposControl = (['exhibicion', 'refrigeracion'] as const).filter((t) => tipos.includes(t));
   if (tiposControl.length > 0) {
+    // Un control se muestra con la hora del teléfono; la del servidor no se expone.
     const controles = await ControlModel.find({
       ...filtroPuesto,
       tipo: { $in: tiposControl },
-      registradoEn: rango,
+      horaDispositivo: rango,
     }).lean();
     for (const c of controles) {
       const nombre = c.tipo === 'exhibicion' ? 'Exhibición' : 'Refrigeración';
-      const semaforo = semaforoDeControl(c.cumplimiento, c.dentroRango);
       entradas.push({
         id: String(c._id),
         tipo: c.tipo,
         titulo: c.dentroRango
-          ? `${nombre} ${c.franjaProgramada}`
-          : `${nombre} ${c.franjaProgramada} — ${numero(c.temperatura)} °C`,
+          ? `${nombre} · control ${c.numero}`
+          : `${nombre} · control ${c.numero} — ${numero(c.temperatura)} °C`,
         ...datosPuesto(contexto, c.puestoId),
-        registradoEn: c.registradoEn.toISOString(),
+        registradoEn: c.horaDispositivo.toISOString(),
         dia: c.dia,
-        hora: zonedTimeKey(c.registradoEn, TZ),
+        hora: zonedTimeKey(c.horaDispositivo, TZ),
         usuario: nombreUsuario(contexto, c.usuarioId),
-        semaforo,
-        estadoTexto: !c.dentroRango
-          ? 'Fuera de rango'
-          : c.cumplimiento === 'a_tiempo'
-            ? 'A tiempo'
-            : 'Con retraso',
+        semaforo: c.dentroRango ? 'verde' : 'rojo',
+        estadoTexto: c.dentroRango ? 'Dentro de rango' : 'Fuera de rango',
         detalle: c.desviaciones.length > 0 ? c.desviaciones.join(' · ') : null,
       });
     }

@@ -16,7 +16,7 @@ export const CARNES_ROJAS: readonly TipoCarne[] = ['res', 'cerdo'];
 export const RESULTADOS_RECEPCION = ['aceptado', 'rechazado'] as const;
 export type ResultadoRecepcion = (typeof RESULTADOS_RECEPCION)[number];
 
-/** Tipo de control horario programado. */
+/** Tipo de control diario: se repite varias veces al día, sin horario fijo. */
 export const TIPOS_CONTROL = ['exhibicion', 'refrigeracion'] as const;
 export type TipoControl = (typeof TIPOS_CONTROL)[number];
 
@@ -24,8 +24,11 @@ export type TipoControl = (typeof TIPOS_CONTROL)[number];
 export const TURNOS_LIMPIEZA = ['inicial', 'final'] as const;
 export type TurnoLimpieza = (typeof TURNOS_LIMPIEZA)[number];
 
-/** Estado de cumplimiento de un control programado (R4). */
-export const ESTADOS_CONTROL = ['a_tiempo', 'con_retraso', 'pendiente', 'no_realizado'] as const;
+/**
+ * Estado de un control del día. No hay horario fijo ni puntualidad: un control
+ * está realizado, pendiente mientras dura el día, o no realizado cuando el día terminó.
+ */
+export const ESTADOS_CONTROL = ['realizado', 'pendiente', 'no_realizado'] as const;
 export type EstadoControl = (typeof ESTADOS_CONTROL)[number];
 
 /** Semáforo de la plataforma. `gris` = todavía no corresponde realizarlo. */
@@ -116,9 +119,8 @@ export const CONFIGURACION_POR_DEFECTO = {
   temperaturaMaxima: 5,
   rangoPhRojas: { min: 5.4, max: 5.8 },
   rangoPhPollo: { min: 5.8, max: 6.2 },
-  horariosExhibicion: ['07:00', '10:30', '13:30'],
-  horariosRefrigeracion: ['07:00', '13:30'],
-  toleranciaMinutos: 15,
+  controlesExhibicionPorDia: 3,
+  controlesRefrigeracionPorDia: 2,
   diasAvisoPlagas: [7, 3, 1, 0],
   diasAvisoMantenimiento: 15,
 } as const;

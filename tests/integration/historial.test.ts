@@ -2,16 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { PUNTOS_INSPECCION_PUESTO, PUNTOS_LIMPIEZA } from '../../src/domain/constants.js';
 import { zonedTimeKey } from '../../src/domain/time.js';
-import {
-  actualizarConfiguracion,
-  invalidarConfiguracion,
-} from '../../src/services/configuracion.service.js';
+import { invalidarConfiguracion } from '../../src/services/configuracion.service.js';
 import { cerrarBaseDePrueba, conectarBaseDePrueba, limpiarBaseDePrueba } from '../helpers/db.js';
 import { app, crearSesion, crearSesionPuesto } from '../helpers/factories.js';
 
 const TZ = 'America/La_Paz';
 const EVIDENCIA = { url: 'https://res.cloudinary.com/demo/image/upload/x.jpg', publicId: 'demo/x' };
-const ahoraLocal = () => zonedTimeKey(new Date(), TZ);
 
 const checklistLimpieza = (cumple = true) => PUNTOS_LIMPIEZA.map((nombre) => ({ nombre, cumple }));
 
@@ -42,15 +38,13 @@ beforeEach(async () => {
 
 /** Deja un puesto con una recepción, un control y una limpieza registrados hoy. */
 async function puestoConRegistros(numero = 1) {
-  const franja = ahoraLocal();
-  await actualizarConfiguracion({ horariosExhibicion: [franja], horariosRefrigeracion: [franja] });
   const contexto = await crearSesionPuesto(numero);
   const auth = contexto.sesion.auth;
 
   await request(app).post('/api/recepciones').set('Authorization', auth).send(recepcion);
   await request(app).post('/api/controles').set('Authorization', auth).send({
     tipo: 'exhibicion',
-    franjaProgramada: franja,
+    horaDispositivo: new Date().toISOString(),
     temperatura: 4,
     ph: 5.6,
     tipoCarne: 'res',
@@ -125,13 +119,11 @@ describe('GET /api/historial — vendedor', () => {
   });
 
   it('filtra por semáforo', async () => {
-    const franja = ahoraLocal();
-    await actualizarConfiguracion({ horariosExhibicion: [franja], horariosRefrigeracion: [] });
     const { sesion } = await crearSesionPuesto(1);
 
     await request(app).post('/api/controles').set('Authorization', sesion.auth).send({
       tipo: 'exhibicion',
-      franjaProgramada: franja,
+      horaDispositivo: new Date().toISOString(),
       temperatura: 9,
       ph: 5.6,
       tipoCarne: 'res',
@@ -301,5 +293,25 @@ describe('GET /api/historial — supervisión', () => {
       .set('Authorization', supervisor.auth);
 
     expect(respuesta.body.data).toHaveLength(0);
+  });
+});
+
+describe('hora que muestra el historial', () => {
+  it('un control muestra la hora del teléfono, no la del servidor', async () => {
+    const { sesion } = await crearSesionPuesto(1);
+    const horaDelTelefono = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+    await request(app).post('/api/controles').set('Authorization', sesion.auth).send({
+      tipo: 'refrigeracion',
+      temperatura: 3,
+      horaDispositivo: horaDelTelefono.toISOString(),
+    });
+
+    const respuesta = await request(app).get('/api/historial').set('Authorization', sesion.auth);
+    const entrada = respuesta.body.data.find((e: { tipo: string }) => e.tipo === 'refrigeracion');
+
+    expect(entrada.hora).toBe(zonedTimeKey(horaDelTelefono, TZ));
+    expect(entrada.registradoEn).toBe(horaDelTelefono.toISOString());
+    expect(entrada.estadoTexto).toBe('Dentro de rango');
   });
 });

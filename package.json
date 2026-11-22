@@ -19,7 +19,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "seed": "tsx src/scripts/seed.ts",
-    "limpiar": "tsx src/scripts/limpiar.ts"
+    "limpiar": "tsx src/scripts/limpiar.ts",
+    "migrar": "tsx src/scripts/migrar.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

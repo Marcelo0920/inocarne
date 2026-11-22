@@ -1,7 +1,6 @@
 import { Types } from 'mongoose';
 import { env } from '../../config/env.js';
-import { semaforoAgregado, semaforoDeControl } from '../../domain/compliance.js';
-import { estadoCumplimiento } from '../../domain/compliance.js';
+import { estadoDeControl, semaforoAgregado, semaforoDeControl } from '../../domain/compliance.js';
 import type { EstadoControl, Semaforo, TipoControl } from '../../domain/constants.js';
 import { estadoMantenimiento } from '../../domain/maintenance.js';
 import { estaVencida } from '../../domain/maintenance.js';
@@ -12,6 +11,7 @@ import { LimpiezaModel } from '../../models/Limpieza.js';
 import { NoConformidadModel } from '../../models/NoConformidad.js';
 import { PuestoModel } from '../../models/Puesto.js';
 import { RecepcionModel } from '../../models/Recepcion.js';
+import { cantidadPorDia, nombreDeControl } from '../controles/controles.service.js';
 import { obtenerConfiguracion } from '../../services/configuracion.service.js';
 
 const TZ = env.DISPLAY_TIMEZONE;
@@ -53,8 +53,9 @@ export interface Dashboard {
 
 /**
  * Panel general de control (punto 5).
- * Cada celda se calcula al momento de consultar comparando la hora real de
- * registro contra el horario programado: el semáforo nunca se almacena (R8).
+ * Cada celda se calcula al momento de consultar: el semáforo nunca se
+ * almacena (R8). Los controles no tienen horario: solo cuenta si se hicieron
+ * en el día y si sus mediciones están dentro de rango.
  */
 export async function construirDashboard(
   dia: string | undefined,
@@ -76,14 +77,14 @@ export async function construirDashboard(
 
   const columnas = [
     { clave: 'recepcion', etiqueta: 'Recepción de carne', grupo: 'Recepción' },
-    ...configuracion.horariosExhibicion.map((hora) => ({
-      clave: `exhibicion-${hora}`,
-      etiqueta: hora,
+    ...numerosDelDia(cantidadPorDia('exhibicion', configuracion)).map((numero) => ({
+      clave: `exhibicion-${numero}`,
+      etiqueta: `Control ${numero}`,
       grupo: 'Medición de temperatura y pH',
     })),
-    ...configuracion.horariosRefrigeracion.map((hora) => ({
-      clave: `refrigeracion-${hora}`,
-      etiqueta: hora,
+    ...numerosDelDia(cantidadPorDia('refrigeracion', configuracion)).map((numero) => ({
+      clave: `refrigeracion-${numero}`,
+      etiqueta: `Control ${numero}`,
       grupo: 'Equipos de refrigeración',
     })),
     { clave: 'limpieza-inicial', etiqueta: 'Limp. inicial', grupo: 'Limpieza' },
@@ -123,38 +124,25 @@ export async function construirDashboard(
       });
     }
 
-    // Controles horarios de exhibición y refrigeración.
+    // Controles diarios de exhibición y refrigeración, sin horario fijo.
     for (const tipo of ['exhibicion', 'refrigeracion'] as TipoControl[]) {
-      const horarios =
-        tipo === 'exhibicion'
-          ? configuracion.horariosExhibicion
-          : configuracion.horariosRefrigeracion;
-
-      for (const hora of horarios) {
+      for (const numero of numerosDelDia(cantidadPorDia(tipo, configuracion))) {
         const registro = controles.find(
-          (c) => String(c.puestoId) === id && c.tipo === tipo && c.franjaProgramada === hora,
+          (c) => String(c.puestoId) === id && c.tipo === tipo && c.numero === numero,
         );
-        const estado = estadoCumplimiento(
-          {
-            dia: diaConsultado,
-            horaProgramada: hora,
-            toleranciaMinutos: configuracion.toleranciaMinutos,
-            timeZone: TZ,
-          },
-          registro ? new Date(registro.registradoEn) : null,
-          ahora,
-        );
+        const estado = estadoDeControl(Boolean(registro), diaConsultado, TZ, ahora);
         const semaforo = semaforoDeControl(estado, registro?.dentroRango ?? true);
 
         let detalle: string | null = null;
-        if (estado === 'no_realizado') detalle = `Control de ${hora} no realizado`;
-        else if (estado === 'con_retraso') detalle = `Control de ${hora} registrado con retraso`;
+        if (estado === 'no_realizado') {
+          detalle = `Control ${numero} de ${nombreDeControl(tipo)} no realizado`;
+        }
         if (registro && !registro.dentroRango) detalle = registro.desviaciones.join(' · ');
         if (detalle && semaforo !== 'gris' && semaforo !== 'verde') problemas.push(detalle);
 
         celdas.push({
-          clave: `${tipo}-${hora}`,
-          etiqueta: hora,
+          clave: `${tipo}-${numero}`,
+          etiqueta: `Control ${numero}`,
           semaforo,
           estado,
           detalle,
@@ -223,6 +211,11 @@ export async function construirDashboard(
       mantenimientosVencidos,
     },
   };
+}
+
+/** 1, 2, … n: los controles que corresponden en el día. */
+function numerosDelDia(cantidad: number): number[] {
+  return Array.from({ length: cantidad }, (_, indice) => indice + 1);
 }
 
 export interface DetallePuesto {

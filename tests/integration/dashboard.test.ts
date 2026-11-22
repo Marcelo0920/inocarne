@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { PUNTOS_LIMPIEZA } from '../../src/domain/constants.js';
-import { zonedDayKey, zonedTimeKey, zonedTimeToUtc } from '../../src/domain/time.js';
+import { zonedDayKey, zonedTimeToUtc } from '../../src/domain/time.js';
 import { construirDashboard } from '../../src/modules/dashboard/dashboard.service.js';
 import {
   actualizarConfiguracion,
@@ -13,7 +13,8 @@ import { app, crearSesion, crearSesionPuesto } from '../helpers/factories.js';
 const TZ = 'America/La_Paz';
 const EVIDENCIA = { url: 'https://res.cloudinary.com/demo/image/upload/x.jpg', publicId: 'demo/x' };
 const hoy = () => zonedDayKey(new Date(), TZ);
-const ahoraLocal = () => zonedTimeKey(new Date(), TZ);
+const ayer = () => zonedDayKey(new Date(Date.now() - 24 * 60 * 60 * 1000), TZ);
+const horaDelTelefono = () => new Date().toISOString();
 
 const checklist = (cumple = true) => PUNTOS_LIMPIEZA.map((nombre) => ({ nombre, cumple }));
 
@@ -33,8 +34,8 @@ beforeEach(async () => {
 describe('GET /api/dashboard', () => {
   it('lista todos los puestos activos con sus columnas de control', async () => {
     await actualizarConfiguracion({
-      horariosExhibicion: ['07:00', '10:30', '13:30'],
-      horariosRefrigeracion: ['07:00', '13:30'],
+      controlesExhibicionPorDia: 3,
+      controlesRefrigeracionPorDia: 2,
     });
     await crearSesionPuesto(1);
     await crearSesionPuesto(2);
@@ -58,30 +59,42 @@ describe('GET /api/dashboard', () => {
     expect(respuesta.status).toBe(403);
   });
 
-  it('pone en rojo el puesto que no realizó un control y explica el motivo', async () => {
+  it('pone en rojo el puesto que terminó el día sin un control y explica el motivo', async () => {
     await actualizarConfiguracion({
-      horariosExhibicion: ['07:00'],
-      horariosRefrigeracion: ['07:00'],
-      toleranciaMinutos: 15,
+      controlesExhibicionPorDia: 1,
+      controlesRefrigeracionPorDia: 1,
     });
     const { puesto } = await crearSesionPuesto(1);
 
-    // A las 12:00 la ventana de las 07:00 ya cerró sin ningún registro.
-    const dashboard = await construirDashboard(hoy(), zonedTimeToUtc(hoy(), '12:00', TZ));
+    // Hoy a las 08:00 el día de ayer ya terminó sin ningún registro.
+    const dashboard = await construirDashboard(ayer(), zonedTimeToUtc(hoy(), '08:00', TZ));
     const fila = dashboard.filas[0]!;
 
     expect(fila.puestoId).toBe(String(puesto._id));
     expect(fila.semaforo).toBe('rojo');
-    expect(fila.problemas).toContain('Control de 07:00 no realizado');
+    expect(fila.problemas).toContain('Control 1 de exhibición no realizado');
     expect(dashboard.resumen.conIncumplimiento).toBe(1);
   });
 
-  it('queda en verde el puesto que registró todo correctamente', async () => {
-    const franja = ahoraLocal();
+  it('un control que falta mientras dura el día no es un incumplimiento, a ninguna hora', async () => {
     await actualizarConfiguracion({
-      horariosExhibicion: [franja],
-      horariosRefrigeracion: [franja],
-      toleranciaMinutos: 60,
+      controlesExhibicionPorDia: 1,
+      controlesRefrigeracionPorDia: 1,
+    });
+    await crearSesionPuesto(1);
+
+    const dashboard = await construirDashboard(hoy(), zonedTimeToUtc(hoy(), '23:00', TZ));
+    const fila = dashboard.filas[0]!;
+
+    expect(fila.semaforo).toBe('gris');
+    expect(fila.problemas).toHaveLength(0);
+    expect(fila.celdas.find((c) => c.clave === 'exhibicion-1')?.estado).toBe('pendiente');
+  });
+
+  it('queda en verde el puesto que registró todo correctamente', async () => {
+    await actualizarConfiguracion({
+      controlesExhibicionPorDia: 1,
+      controlesRefrigeracionPorDia: 1,
     });
     const { sesion } = await crearSesionPuesto(1);
     const supervisor = await crearSesion({ rol: 'supervisor', usuario: 'supervisora' });
@@ -102,7 +115,7 @@ describe('GET /api/dashboard', () => {
       });
     await request(app).post('/api/controles').set('Authorization', sesion.auth).send({
       tipo: 'exhibicion',
-      franjaProgramada: franja,
+      horaDispositivo: horaDelTelefono(),
       temperatura: 4,
       ph: 5.6,
       tipoCarne: 'res',
@@ -110,7 +123,7 @@ describe('GET /api/dashboard', () => {
     await request(app)
       .post('/api/controles')
       .set('Authorization', sesion.auth)
-      .send({ tipo: 'refrigeracion', franjaProgramada: franja, temperatura: 2 });
+      .send({ tipo: 'refrigeracion', horaDispositivo: horaDelTelefono(), temperatura: 2 });
     await request(app)
       .post('/api/limpiezas')
       .set('Authorization', sesion.auth)
@@ -131,7 +144,6 @@ describe('GET /api/dashboard', () => {
   });
 
   it('pone en rojo una recepción rechazada y muestra el motivo', async () => {
-    await actualizarConfiguracion({ horariosExhibicion: [], horariosRefrigeracion: [] });
     const { sesion } = await crearSesionPuesto(1);
     const supervisor = await crearSesion({ rol: 'supervisor', usuario: 'supervisora' });
 

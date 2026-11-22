@@ -8,9 +8,8 @@ import type { RangosConfigurados } from '../domain/ranges.js';
 import { ConfiguracionModel, type Configuracion } from '../models/Configuracion.js';
 
 export interface ConfiguracionResuelta extends RangosConfigurados {
-  horariosExhibicion: string[];
-  horariosRefrigeracion: string[];
-  toleranciaMinutos: number;
+  controlesExhibicionPorDia: number;
+  controlesRefrigeracionPorDia: number;
   diasAvisoPlagas: number[];
   diasAvisoMantenimiento: number;
   puntosLimpieza: string[];
@@ -26,24 +25,30 @@ export interface ConfiguracionResuelta extends RangosConfigurados {
 const TTL_MS = 30_000;
 let cache: { valor: ConfiguracionResuelta; expira: number } | null = null;
 
+/** Cantidad de controles por día; menos de uno vuelve al valor por defecto. */
+function cantidadValida(valor: number | undefined, porDefecto: number): number {
+  return typeof valor === 'number' && valor >= 1 ? valor : porDefecto;
+}
+
 /**
  * Completa con los valores por defecto lo que no esté configurado.
  * Una lista vacía cuenta como "sin configurar" y vuelve a los valores por
- * defecto: así una configuración incompleta nunca deja al mercado sin controles
- * programados. Por eso el esquema de la API exige al menos un horario.
+ * defecto, igual que una cantidad de controles menor a uno: así una
+ * configuración incompleta nunca deja al mercado sin controles diarios.
  */
 function resolver(doc: Configuracion | null): ConfiguracionResuelta {
   return {
     temperaturaMaxima: doc?.temperaturaMaxima ?? CONFIGURACION_POR_DEFECTO.temperaturaMaxima,
     rangoPhRojas: doc?.rangoPhRojas ?? { ...CONFIGURACION_POR_DEFECTO.rangoPhRojas },
     rangoPhPollo: doc?.rangoPhPollo ?? { ...CONFIGURACION_POR_DEFECTO.rangoPhPollo },
-    horariosExhibicion: doc?.horariosExhibicion?.length
-      ? [...doc.horariosExhibicion]
-      : [...CONFIGURACION_POR_DEFECTO.horariosExhibicion],
-    horariosRefrigeracion: doc?.horariosRefrigeracion?.length
-      ? [...doc.horariosRefrigeracion]
-      : [...CONFIGURACION_POR_DEFECTO.horariosRefrigeracion],
-    toleranciaMinutos: doc?.toleranciaMinutos ?? CONFIGURACION_POR_DEFECTO.toleranciaMinutos,
+    controlesExhibicionPorDia: cantidadValida(
+      doc?.controlesExhibicionPorDia,
+      CONFIGURACION_POR_DEFECTO.controlesExhibicionPorDia,
+    ),
+    controlesRefrigeracionPorDia: cantidadValida(
+      doc?.controlesRefrigeracionPorDia,
+      CONFIGURACION_POR_DEFECTO.controlesRefrigeracionPorDia,
+    ),
     diasAvisoPlagas: doc?.diasAvisoPlagas?.length
       ? [...doc.diasAvisoPlagas]
       : [...CONFIGURACION_POR_DEFECTO.diasAvisoPlagas],

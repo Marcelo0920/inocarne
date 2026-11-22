@@ -1,67 +1,35 @@
 import type { EstadoControl, Semaforo } from './constants.js';
-import { zonedDayKey, zonedTimeToUtc } from './time.js';
-
-export interface VentanaControl {
-  /** Horario programado en hora local, `HH:mm`. */
-  horaProgramada: string;
-  /** Día local al que pertenece el control, `YYYY-MM-DD`. */
-  dia: string;
-  /** Tolerancia en minutos, antes y después del horario programado. */
-  toleranciaMinutos: number;
-  timeZone: string;
-}
-
-export interface LimitesVentana {
-  programado: Date;
-  desde: Date;
-  hasta: Date;
-}
-
-/** Límites en UTC de la ventana de tolerancia de un control programado. */
-export function limitesVentana(ventana: VentanaControl): LimitesVentana {
-  const programado = zonedTimeToUtc(ventana.dia, ventana.horaProgramada, ventana.timeZone);
-  const margen = ventana.toleranciaMinutos * 60_000;
-  return {
-    programado,
-    desde: new Date(programado.getTime() - margen),
-    hasta: new Date(programado.getTime() + margen),
-  };
-}
+import { zonedDayKey } from './time.js';
 
 /**
- * Estado de cumplimiento de un control programado (regla R4).
+ * Estado de un control del día.
  *
- * - `a_tiempo`     el registro cae dentro de la ventana de tolerancia
- * - `con_retraso`  hay registro, pero fuera de la ventana
- * - `pendiente`    todavía no hay registro y la ventana no se ha cerrado
- * - `no_realizado` la ventana se cerró sin ningún registro
+ * Los controles no tienen horario fijo ni se evalúa su puntualidad: cada
+ * vendedor los hace cuando puede. Solo importa si se hicieron ese día.
+ *
+ * - `realizado`     ya existe el registro
+ * - `pendiente`     no hay registro y el día del mercado todavía no termina
+ * - `no_realizado`  el día del mercado terminó sin registro
  */
-export function estadoCumplimiento(
-  ventana: VentanaControl,
-  registradoEn: Date | null,
+export function estadoDeControl(
+  realizado: boolean,
+  dia: string,
+  timeZone: string,
   ahora: Date = new Date(),
 ): EstadoControl {
-  const { desde, hasta } = limitesVentana(ventana);
-
-  if (registradoEn) {
-    const t = registradoEn.getTime();
-    return t >= desde.getTime() && t <= hasta.getTime() ? 'a_tiempo' : 'con_retraso';
-  }
-
-  return ahora.getTime() > hasta.getTime() ? 'no_realizado' : 'pendiente';
+  if (realizado) return 'realizado';
+  return dia < zonedDayKey(ahora, timeZone) ? 'no_realizado' : 'pendiente';
 }
 
 /**
- * Semáforo de un control, combinando su estado de cumplimiento con el
- * resultado de sus mediciones. Una medición fuera de rango siempre es roja.
+ * Semáforo de un control, combinando su estado con el resultado de sus
+ * mediciones. Una medición fuera de rango siempre es roja.
  */
 export function semaforoDeControl(estado: EstadoControl, dentroRango = true): Semaforo {
   if (!dentroRango) return 'rojo';
   switch (estado) {
-    case 'a_tiempo':
+    case 'realizado':
       return 'verde';
-    case 'con_retraso':
-      return 'amarillo';
     case 'no_realizado':
       return 'rojo';
     case 'pendiente':

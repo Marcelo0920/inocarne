@@ -2,14 +2,17 @@ import { z } from 'zod';
 import { TIPOS_CARNE, TIPOS_CONTROL } from '../../domain/constants.js';
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Identificador inválido');
-const hora = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use el formato HH:mm');
 const dia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use el formato YYYY-MM-DD');
 
 export const crearControlSchema = z
   .object({
     puestoId: objectId.optional(),
     tipo: z.enum(TIPOS_CONTROL),
-    franjaProgramada: hora,
+    // Hora del teléfono o de la computadora al guardar, en ISO 8601. Es la que
+    // se muestra; el servidor guarda aparte la suya sin mostrarla.
+    horaDispositivo: z
+      .string({ required_error: 'Falta la hora del teléfono' })
+      .datetime({ offset: true, message: 'La hora del teléfono no es válida' }),
     temperatura: z.number({ invalid_type_error: 'Ingrese la temperatura' }),
     ph: z.number().optional(),
     tipoCarne: z.enum(TIPOS_CARNE).optional(),
@@ -31,7 +34,6 @@ export const listarControlesSchema = z.object({
   tipo: z.enum(TIPOS_CONTROL).optional(),
   desde: dia.optional(),
   hasta: dia.optional(),
-  cumplimiento: z.enum(['a_tiempo', 'con_retraso']).optional(),
   dentroRango: z
     .enum(['true', 'false'])
     .optional()

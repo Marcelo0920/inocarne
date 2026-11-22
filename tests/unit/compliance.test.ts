@@ -1,91 +1,66 @@
 import { describe, expect, it } from 'vitest';
 import {
-  estadoCumplimiento,
-  limitesVentana,
+  estadoDeControl,
   semaforoAgregado,
   semaforoDeControl,
-  type VentanaControl,
 } from '../../src/domain/compliance.js';
 import { estadoMantenimiento, estaVencida } from '../../src/domain/maintenance.js';
 
 const TZ = 'America/La_Paz';
 
-/** Control de las 10:30 del 09/02/2026, con la tolerancia por defecto de 15 minutos. */
-const ventana: VentanaControl = {
-  dia: '2026-02-09',
-  horaProgramada: '10:30',
-  toleranciaMinutos: 15,
-  timeZone: TZ,
-};
+/** Instante UTC a partir de una fecha y hora local de La Paz (UTC-4). */
+const local = (dia: string, hora: string): Date => new Date(`${dia}T${hora}:00.000-04:00`);
 
-/** Instante UTC a partir de una hora local del 09/02/2026. */
-const local = (hora: string): Date => new Date(`2026-02-09T${hora}:00.000-04:00`);
-
-describe('ventana de tolerancia', () => {
-  it('se extiende 15 minutos antes y después del horario programado', () => {
-    const { programado, desde, hasta } = limitesVentana(ventana);
-    expect(programado.toISOString()).toBe('2026-02-09T14:30:00.000Z');
-    expect(desde.toISOString()).toBe('2026-02-09T14:15:00.000Z');
-    expect(hasta.toISOString()).toBe('2026-02-09T14:45:00.000Z');
-  });
-});
-
-describe('estado de cumplimiento (regla R4)', () => {
-  it('un registro a las 10:32 está a tiempo', () => {
-    expect(estadoCumplimiento(ventana, local('10:32'))).toBe('a_tiempo');
+describe('estado de un control del día (sin horario fijo)', () => {
+  it('realizado en cuanto existe el registro, sin importar la hora', () => {
+    expect(estadoDeControl(true, '2026-02-09', TZ, local('2026-02-09', '06:00'))).toBe('realizado');
+    expect(estadoDeControl(true, '2026-02-09', TZ, local('2026-02-09', '23:30'))).toBe('realizado');
   });
 
-  it('un registro a las 11:15 está con retraso', () => {
-    expect(estadoCumplimiento(ventana, local('11:15'))).toBe('con_retraso');
+  it('pendiente mientras el día todavía no termina', () => {
+    expect(estadoDeControl(false, '2026-02-09', TZ, local('2026-02-09', '07:00'))).toBe(
+      'pendiente',
+    );
+    expect(estadoDeControl(false, '2026-02-09', TZ, local('2026-02-09', '23:59'))).toBe(
+      'pendiente',
+    );
   });
 
-  it('acepta los bordes exactos de la tolerancia', () => {
-    expect(estadoCumplimiento(ventana, local('10:15'))).toBe('a_tiempo');
-    expect(estadoCumplimiento(ventana, local('10:45'))).toBe('a_tiempo');
-  });
-
-  it('registrar un minuto antes de la tolerancia cuenta como retraso', () => {
-    expect(estadoCumplimiento(ventana, local('10:14'))).toBe('con_retraso');
-    expect(estadoCumplimiento(ventana, local('10:46'))).toBe('con_retraso');
-  });
-
-  it('sin registro y con la ventana abierta queda pendiente', () => {
-    expect(estadoCumplimiento(ventana, null, local('10:20'))).toBe('pendiente');
-    expect(estadoCumplimiento(ventana, null, local('08:00'))).toBe('pendiente');
-  });
-
-  it('sin registro y con la ventana cerrada queda no realizado', () => {
-    expect(estadoCumplimiento(ventana, null, local('12:00'))).toBe('no_realizado');
-  });
-
-  it('el cambio de pendiente a no realizado ocurre al cerrar la tolerancia', () => {
-    expect(estadoCumplimiento(ventana, null, local('10:45'))).toBe('pendiente');
-    expect(estadoCumplimiento(ventana, null, new Date(local('10:45').getTime() + 1000))).toBe(
+  it('no realizado recién cuando el día del mercado terminó', () => {
+    expect(estadoDeControl(false, '2026-02-09', TZ, local('2026-02-10', '00:00'))).toBe(
       'no_realizado',
+    );
+  });
+
+  it('el fin del día se mide en la hora local del mercado, no en UTC', () => {
+    // 23:30 en La Paz ya es el día siguiente en UTC: el control sigue pendiente.
+    expect(estadoDeControl(false, '2026-02-09', TZ, local('2026-02-09', '23:30'))).toBe(
+      'pendiente',
+    );
+  });
+
+  it('un día futuro está pendiente', () => {
+    expect(estadoDeControl(false, '2026-02-12', TZ, local('2026-02-09', '12:00'))).toBe(
+      'pendiente',
     );
   });
 });
 
 describe('semáforo', () => {
-  it('verde solo cuando el control fue a tiempo y dentro de rango', () => {
-    expect(semaforoDeControl('a_tiempo', true)).toBe('verde');
-  });
-
-  it('amarillo cuando se registró con retraso', () => {
-    expect(semaforoDeControl('con_retraso', true)).toBe('amarillo');
+  it('verde cuando el control se realizó dentro de rango', () => {
+    expect(semaforoDeControl('realizado', true)).toBe('verde');
   });
 
   it('rojo cuando no se realizó', () => {
     expect(semaforoDeControl('no_realizado')).toBe('rojo');
   });
 
-  it('gris mientras todavía no corresponde realizarlo', () => {
+  it('gris mientras todavía se puede realizar', () => {
     expect(semaforoDeControl('pendiente')).toBe('gris');
   });
 
-  it('una medición fuera de rango es roja aunque el control sea puntual', () => {
-    expect(semaforoDeControl('a_tiempo', false)).toBe('rojo');
-    expect(semaforoDeControl('con_retraso', false)).toBe('rojo');
+  it('una medición fuera de rango es roja', () => {
+    expect(semaforoDeControl('realizado', false)).toBe('rojo');
   });
 
   it('el semáforo del puesto toma siempre el estado más grave', () => {

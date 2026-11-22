@@ -1,5 +1,4 @@
 import { env } from '../../config/env.js';
-import { estadoCumplimiento } from '../../domain/compliance.js';
 import { estadoMantenimiento, estaVencida } from '../../domain/maintenance.js';
 import { addDays, diffInDays, formatInZone, zonedDayKey } from '../../domain/time.js';
 import { ControlModel } from '../../models/Control.js';
@@ -8,6 +7,7 @@ import { EquipoModel } from '../../models/Equipo.js';
 import { NoConformidadModel } from '../../models/NoConformidad.js';
 import { PuestoModel } from '../../models/Puesto.js';
 import { obtenerConfiguracion } from '../../services/configuracion.service.js';
+import { cantidadPorDia, nombreDeControl } from '../controles/controles.service.js';
 import { crearNotificacion, despacharPendientes } from '../../services/notificaciones.service.js';
 
 const TZ = env.DISPLAY_TIMEZONE;
@@ -50,76 +50,62 @@ export async function evaluarAlertas(ahora: Date = new Date()): Promise<Resultad
   };
 }
 
-/** Un control cuya ventana cerró sin registro genera un aviso al puesto y a la supervisión. */
+/**
+ * Los controles no tienen horario: uno falta recién cuando termina el día del
+ * mercado. Por eso se revisa el día anterior y se avisa al puesto y a la
+ * supervisión una sola vez por puesto, tipo de control y día.
+ */
 async function alertarControlesNoRealizados(
   configuracion: Awaited<ReturnType<typeof obtenerConfiguracion>>,
   ahora: Date,
 ): Promise<number> {
-  const dia = zonedDayKey(ahora, TZ);
+  const dia = zonedDayKey(addDays(ahora, -1), TZ);
   const puestos = await PuestoModel.find({ activo: true }).lean();
   const registros = await ControlModel.find({ dia }).lean();
 
   let alertas = 0;
   for (const puesto of puestos) {
     for (const tipo of ['exhibicion', 'refrigeracion'] as const) {
-      const horarios =
-        tipo === 'exhibicion'
-          ? configuracion.horariosExhibicion
-          : configuracion.horariosRefrigeracion;
+      const limite = cantidadPorDia(tipo, configuracion);
+      const hechos = registros.filter(
+        (r) => String(r.puestoId) === String(puesto._id) && r.tipo === tipo,
+      ).length;
+      const faltan = limite - hechos;
+      if (faltan <= 0) continue;
 
-      for (const hora of horarios) {
-        const existe = registros.some(
-          (r) =>
-            String(r.puestoId) === String(puesto._id) &&
-            r.tipo === tipo &&
-            r.franjaProgramada === hora,
-        );
-        if (existe) continue;
+      const referencia = { coleccion: `controles:${tipo}:${dia}`, documentoId: puesto._id };
 
-        const estado = estadoCumplimiento(
-          {
-            dia,
-            horaProgramada: hora,
-            toleranciaMinutos: configuracion.toleranciaMinutos,
-            timeZone: TZ,
-          },
-          null,
-          ahora,
-        );
-        if (estado !== 'no_realizado') continue;
+      // Un aviso por puesto, tipo y día: no se repite en cada ejecución.
+      if (await yaExisteAviso(referencia.coleccion, puesto._id)) continue;
 
-        const referencia = {
-          coleccion: `controles:${tipo}:${hora}:${dia}`,
-          documentoId: puesto._id,
-        };
-        const titulo = 'Control no realizado';
-        const mensaje =
-          `El control de ${tipo === 'exhibicion' ? 'exhibición' : 'refrigeración'} de las ` +
-          `${hora} no fue registrado.`;
+      const mensaje =
+        `El ${fechaLegible(dia)} ${faltan === 1 ? 'faltó' : 'faltaron'} ${faltan} de ` +
+        `${limite} controles de ${nombreDeControl(tipo)}.`;
 
-        // Un aviso por puesto, control y día: no se repite en cada ejecución.
-        const yaAvisado = await yaExisteAviso(referencia.coleccion, puesto._id);
-        if (yaAvisado) continue;
-
-        await crearNotificacion({
-          puestoId: puesto._id,
-          tipo: 'control_pendiente',
-          titulo,
-          mensaje,
-          referencia,
-        });
-        await crearNotificacion({
-          paraSupervision: true,
-          tipo: 'control_pendiente',
-          titulo: `Puesto ${puesto.numero}: control no realizado`,
-          mensaje,
-          referencia,
-        });
-        alertas += 1;
-      }
+      await crearNotificacion({
+        puestoId: puesto._id,
+        tipo: 'control_pendiente',
+        titulo: 'Controles no realizados',
+        mensaje,
+        referencia,
+      });
+      await crearNotificacion({
+        paraSupervision: true,
+        tipo: 'control_pendiente',
+        titulo: `Puesto ${puesto.numero}: controles no realizados`,
+        mensaje,
+        referencia,
+      });
+      alertas += 1;
     }
   }
   return alertas;
+}
+
+/** `YYYY-MM-DD` a `DD/MM/YYYY`, como se lee en Bolivia. */
+function fechaLegible(dia: string): string {
+  const [anio, mes, diaDelMes] = dia.split('-');
+  return `${diaDelMes}/${mes}/${anio}`;
 }
 
 async function yaExisteAviso(coleccion: string, documentoId: unknown): Promise<boolean> {
